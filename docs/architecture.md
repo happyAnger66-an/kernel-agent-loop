@@ -190,24 +190,27 @@ classDiagram
     +result(job_id) EvalResult
   }
   class EvalResult {
-    +env
+    +commit
     +compile_ok
-    +correctness
-    +perf
+    +correct
+    +env_before: EnvSnapshot
+    +env_after: EnvSnapshot
+    +per_shape: ShapePerf
     +profile
   }
   class EnvSnapshot {
     +power_mode
-    +clocks
-    +temp_before
-    +temp_after
+    +gpu_clock_mhz
+    +temp_c
     +throttled
   }
-  class PerfStats {
-    +median_us
+  class EnvGuard {
+    +check(before, after) list
+  }
+  class ShapePerf {
+    +candidate_us
+    +incumbent_us
     +noise_pct
-    +ratio_vs_baseline
-    +per_shape
   }
   class ProfileReport {
     +ncu_metrics
@@ -215,7 +218,7 @@ classDiagram
     +regs_smem
   }
   class AcceptanceGate {
-    +decide(result, best) Decision
+    +decide(result) Decision
   }
   class FeedbackBuilder {
     +build(result, parent) Feedback
@@ -243,9 +246,10 @@ classDiagram
   StaticJudge --> Candidate
   EvalClient --> EvalResult
   EvalResult --> EnvSnapshot
-  EvalResult --> PerfStats
+  EvalResult --> ShapePerf
   EvalResult --> ProfileReport
   AcceptanceGate --> EvalResult
+  AcceptanceGate --> EnvGuard
   FeedbackBuilder --> Feedback
   KnowledgeSource <|.. ExperimentLog
   KnowledgeSource <|.. TuningDB
@@ -340,4 +344,68 @@ kernel-agent-loop/
 
 - Triton、CuTe DSL 对 Thor 架构的支持程度未确认，在阶段 0 验证；不支持的后端先不接入。
 - Jetson 上运行 ncu 需要 root 或额外的 profiling 权限，evald 的部署方式要提前确定。
-- 开发机和 Thor 之间的候选包传输方式（SSH 或 HTTP）待定。
+- Thor 对应的 nvcc `-arch` 取值需要在真机上确认；CUDA 后端默认从设备查询 compute capability，不写死。
+
+## 9. 第 1、2 阶段的实现约定
+
+### 9.1 已定的选择
+
+| 问题 | 选择 |
+|---|---|
+| Gate 和实验日志放哪 | 开发机 |
+| 开发机与 Thor 通信 | SSH 同步调用：一次提交等评测结束再返回；GPU 互斥用 `flock` |
+| CUDA 后端 | `nvcc -cubin` 编译，`cuda-python` driver API 加载和启动 |
+| 第一个算子 | RMSNorm |
+
+**已接受的风险**：Agent 在开发机上有 shell 权限，理论上可以改实验日志或绕过 CLI 直接登录 Thor。“只认 evald 写回的结果”在这种部署下靠约定维持，不是强制保证。以后需要更强的保证时，把 Gate 和权威存储移到 Thor，并给开发机配只能调用 evald 的受限 SSH key。
+
+### 9.2 候选包
+
+候选包是一个 tar.gz，只有两类成员：
+
+- `meta.json`：campaign、commit、父 commit、算子、后端、手段、假设。
+- `impl/<相对路径>`：`ops/<op>/impls/<backend>/` 下的文件。
+
+evald 用 campaign 创建时锁定的可信源码树，把 `impl/` **整体替换**进对应目录后再构建（不是合并，候选删掉的文件不会残留）。出现以下任一情况，整个包被拒绝，目标目录不做任何改动：
+
+- 成员不是 `meta.json`，也不在 `impl/` 下；
+- 路径含 `..` 或是绝对路径；
+- 成员是符号链接或硬链接；
+- `meta.json` 里的算子或后端和 campaign 不一致。
+
+因为算子契约、测试和计时代码不在包里，Agent 改了它们也到不了 Thor。
+
+### 9.3 评测进程
+
+- 父进程持有参考实现、隐藏 shape 和容差，负责生成输入和比对结果。
+- 每个候选在新的子进程里运行，只拿到输入和 shape；设超时，在临时目录里运行。
+- 隐藏 shape 放在 Thor 的 evald 配置里，不进仓库。
+
+### 9.4 正确性检查
+
+每个 shape 至少跑两轮，每轮用新的随机种子。每次运行前输出缓冲区填 NaN，运行后核对输入有没有被改写。任何一次不匹配、输入被改写、或候选抛异常，都判为不正确，并在失败原因里写明 shape 和类别（`mismatch`、`input_modified`、`error`）。
+
+### 9.5 计时与判定
+
+- 候选和**当前最优版本（incumbent）**在同一会话里交替运行，抵消温度和频率漂移。
+- 每个 shape 得到一个 `ShapePerf`：候选和 incumbent 各自的逐轮中位数再取中位数；`noise_pct` 是 incumbent 逐轮中位数的极差除以中位数。
+- 第一个候选没有 incumbent，只要正确且环境合格就接受，作为起点。
+- Gate 的判定顺序：编译失败或不正确判 `reject`；环境不合格判 `invalid`（需要重测）；之后只有同时满足下面两条才判 `accept`，否则判 `revert`：
+  - 各 shape 加速比的几何平均，超过 `1 + max(各 shape 的 noise_pct, min_gain_pct)`；
+  - 没有任何 shape 比 incumbent 慢超过它自己的噪声。
+
+### 9.6 CUDA 实现目录约定
+
+```text
+ops/<op>/impls/cuda/
+  kernel.cu     # 一个或多个 extern "C" __global__ 函数
+  launch.py     # launch_config(shape) -> kernel 名、grid、block、动态 smem、参数顺序
+```
+
+参数顺序里的名字，从输入、输出张量和 shape 的维度里取值。
+
+### 9.7 测试
+
+- 测试放在 `tests/`，按被测模块分目录。
+- 不依赖 GPU 的逻辑（判定、环境检查、候选包、正确性、交替计时统计、Static Judge、实验日志、campaign 的 git 操作）用 numpy 和临时 git 仓库测试。
+- 需要 Thor 的测试打 `thor` 标记，默认不跑，在 Thor 上用 `pytest -m thor` 执行。
