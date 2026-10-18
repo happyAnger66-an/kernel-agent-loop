@@ -23,8 +23,9 @@
 | 实验日志 | `ExperimentLog`：记录每次尝试，按 campaign 和父版本去重手段 |
 | 候选包 | `make_bundle` / `overlay_bundle`：包里只有实现目录 |
 | CUDA 后端 | `CudaBackend`：编译 cubin 并用 `run(inputs, outputs, shape)` 启动 |
+| 一次评测 | `evaluate`：编译当前实现，做正确性、交替计时和环境快照，交给门禁并写入实验日志 |
 
-还没有的部分：ncu/SASS 症状诊断、L2 调优库、AiInfraKB 接入、Triton 和 CuTe DSL 后端。架构文档里的这些设计仍然有效，只是本阶段没有实现。
+还没有的部分：SSH 到 Thor 的评测进程、ncu/SASS 症状诊断、L2 调优库、AiInfraKB 接入、Triton 和 CuTe DSL 后端。`evaluate` 在当前进程里跑，不是常驻守护进程。
 
 ## 安装
 
@@ -69,10 +70,11 @@ ops/rmsnorm/impls/cuda/
 from pathlib import Path
 
 from kernel_agent_loop.core.campaign import Campaign
-from kernel_agent_loop.core.experiment_log import Attempt, ExperimentLog
-from kernel_agent_loop.core.gate import AcceptanceGate
+from kernel_agent_loop.core.experiment_log import ExperimentLog
+from kernel_agent_loop.core.opspec import load_opspec
 from kernel_agent_loop.core.static_judge import StaticJudge
-from kernel_agent_loop.evald.env_guard import EnvGuard
+from kernel_agent_loop.core.types import Verdict
+from kernel_agent_loop.evald.evaluate import evaluate
 
 repo = Path(".").resolve()
 campaign = Campaign.create(repo, campaign_id="rms-1", op="rmsnorm", backend="cuda", hardware="thor")
@@ -84,15 +86,19 @@ judge = StaticJudge(op="rmsnorm", backend="cuda")
 
 sha = campaign.commit_candidate(lever="vectorize-loads", hypothesis="用 128-bit load 提高访存宽度")
 
-# result 由评测填入。Gate 不接受调用方自己报的耗时。
-gate = AcceptanceGate(env_guard=EnvGuard(max_temp_drift_c=5.0), min_gain_pct=1.0)
-decision = gate.decide(result)
-if decision.verdict.name == "ACCEPT":
+(repo / ".kal").mkdir(exist_ok=True)
+outcome = evaluate(
+    campaign,
+    spec=load_opspec(repo / "ops", "rmsnorm"),
+    log=ExperimentLog(repo / ".kal" / "experiments.sqlite"),
+    lever="vectorize-loads",
+    hypothesis="用 128-bit load 提高访存宽度",
+    commit=sha,
+)
+if outcome.decision.verdict is Verdict.ACCEPT:
     campaign.accept(sha)
 else:
     campaign.revert()
-
-ExperimentLog(repo / ".kal" / "experiments.sqlite").record(attempt)
 ```
 
 `Campaign.load(repo, "rms-1")` 可以在新会话里恢复同一个 campaign。

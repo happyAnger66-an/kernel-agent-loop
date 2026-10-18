@@ -5,7 +5,7 @@
 from dataclasses import replace
 
 from kernel_agent_loop.core.types import EnvSnapshot
-from kernel_agent_loop.evald.env_guard import EnvGuard
+from kernel_agent_loop.evald.env_guard import EnvGuard, parse_gpu_env_line
 
 STEADY = EnvSnapshot(power_mode="MAXN", gpu_clock_mhz=1575, temp_c=50.0, throttled=False)
 guard = EnvGuard(max_temp_drift_c=5.0)
@@ -46,3 +46,17 @@ def test_temperature_drift_beyond_limit_is_reported():
 # 参数: 无
 def test_temperature_drift_within_limit_passes():
     assert guard.check(STEADY, replace(STEADY, temp_c=54.0)) == []
+
+
+# 用例: nvidia-smi 的一行能解析成功耗模式、频率、温度，以及未降频
+# 参数: 无
+def test_parse_gpu_env_line_reads_a_steady_sample():
+    parsed = parse_gpu_env_line("P0, 1575, 50, Not Active")
+    assert parsed == EnvSnapshot("P0", 1575, 50.0, False)
+
+
+# 用例: clocks_event_reasons.active 不是未激活时记为降频
+# 参数: 无
+def test_parse_gpu_env_line_marks_active_throttle():
+    parsed = parse_gpu_env_line("P2, 1200, 71, 0x0000000000000004")
+    assert parsed.throttled

@@ -81,7 +81,11 @@ class ExperimentLog:
 
     def tried(self, campaign: str, *, lever: str, parent: str) -> bool:
         row = self._db.execute(
-            "SELECT 1 FROM attempts WHERE campaign = ? AND lever = ? AND parent = ? LIMIT 1",
+            """
+            SELECT 1 FROM attempts
+            WHERE campaign = ? AND lever = ? AND parent = ? AND verdict != 'invalid'
+            LIMIT 1
+            """,
             (campaign, lever, parent),
         ).fetchone()
         return row is not None

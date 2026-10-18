@@ -409,3 +409,16 @@ ops/<op>/impls/cuda/
 - 测试放在 `tests/`，按被测模块分目录。
 - 不依赖 GPU 的逻辑（判定、环境检查、候选包、正确性、交替计时统计、Static Judge、实验日志、campaign 的 git 操作）用 numpy 和临时 git 仓库测试。
 - 需要 Thor 的测试打 `thor` 标记，默认不跑，在 Thor 上用 `pytest -m thor` 执行。
+
+### 9.8 一次评测
+
+`evaluate` 在当前进程里把已有零件按这个顺序串起来。它评测的是工作区里的 `ops/<op>/impls/<backend>/`，并用 `git show <campaign.best>` 取出 incumbent。它不调用 `accept` / `revert`。
+
+1. 编译候选。`BuildError` 记为编译失败并拒绝。
+2. `campaign.best` 能编译就作为 incumbent；编不过（例如还是占位实现）就当作没有 incumbent。
+3. `check_correctness`。失败则拒绝，失败类别写入实验日志的症状。
+4. 对每个 shape 做 `interleaved_bench`，墙钟包住一次 `run`。
+5. 评测前后各取一次环境快照，默认读 `nvidia-smi`。
+6. `AcceptanceGate.decide`，把判定写入 `ExperimentLog`。
+
+`Verdict.INVALID` 会留下记录，但 `tried` 忽略它，同一次环境故障不占用手段名。SSH、子进程隔离和 GPU 互斥还没接上；这一步仍在调用 `evaluate` 的机器上跑。

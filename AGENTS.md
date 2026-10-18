@@ -37,15 +37,44 @@ verdict = StaticJudge(op=campaign.op, backend=campaign.backend).check(files)
 sha = campaign.commit_candidate(lever="<手段>", hypothesis="<假设>")
 ```
 
+提交之后用 `evaluate` 评测**当前工作区**里的实现目录，不要自己报耗时：
+
+```python
+from kernel_agent_loop.core.experiment_log import ExperimentLog
+from kernel_agent_loop.core.opspec import load_opspec
+from kernel_agent_loop.core.types import Verdict
+from kernel_agent_loop.evald.evaluate import evaluate
+
+(repo / ".kal").mkdir(exist_ok=True)
+log = ExperimentLog(repo / ".kal" / "experiments.sqlite")
+outcome = evaluate(
+    campaign,
+    spec=load_opspec(repo / "ops", campaign.op),
+    log=log,
+    lever="<手段>",
+    hypothesis="<假设>",
+    commit=sha,
+)
+if outcome.decision.verdict is Verdict.ACCEPT:
+    campaign.accept(sha)
+elif outcome.decision.verdict is Verdict.INVALID:
+    # 环境不合格。不要 accept，也不要 revert 成“这个手段无效”
+    ...
+else:
+    campaign.revert()
+```
+
+`evaluate` 会编译、做正确性、和 `campaign.best` 交替计时、读环境快照、调用 `AcceptanceGate`，并把判定写入 `log`。它不修改最优指针。`campaign.best` 编不过时当作没有 incumbent，第一个正确候选会被接受。默认 shape 是 `spec.public_shapes()`；隐藏 shape 由调用方追加到 `shapes`。默认环境探针是 `nvidia-smi`，频率或温度不合格会得到 `INVALID`。
+
 `commit_candidate` 只会把 `ops/<op>/impls/<backend>/` 的改动放进提交。该目录以外的修改留在工作区，不会被这次提交带走。
 
 `StaticJudge` 会拒绝实现目录以外的路径，以及源码里的 `subprocess`、`socket`、`os.environ`、`open(`、`fopen(`、`system(`。
 
-接受或回退不要自己判断。把评测产生的 `EvalResult` 交给 `AcceptanceGate.decide`：
+接受或回退以 `evaluate` 返回的 `decision` 为准，不要再单独用自己测的时间叫一次门禁：
 
 - `ACCEPT`：`campaign.accept(sha)`
 - `REVERT` 或 `REJECT`：`campaign.revert()`，实现目录回到 `campaign.best`
-- `INVALID`：环境不合格（降频、频率或功耗模式变化、温漂超过 5°C）。不要接受，也不要把它当成性能回退记进「这个手段无效」
+- `INVALID`：环境不合格（降频、频率或功耗模式变化、温漂超过 5°C）。不要接受，也不要把它当成性能回退。这次会记进日志，但 `tried` 不把它算成“这个手段已经试过”
 
 最优提交存在 `.git/kal/<campaign-id>.json`，不在 git 历史里。新会话用 `Campaign.load` 恢复。
 
@@ -61,19 +90,18 @@ sha = campaign.commit_candidate(lever="<手段>", hypothesis="<假设>")
 
 ## 实验日志
 
-每次尝试都记，包括编译失败、结果错误和回退：
+`evaluate` 会把每次尝试写入日志，包括编译失败、结果错误和回退。不要再自己 `record` 一次。提交前用 `tried` 跳过已经在这个父版本上试过的手段：
 
 ```python
-from kernel_agent_loop.core.experiment_log import Attempt, ExperimentLog
+from kernel_agent_loop.core.experiment_log import ExperimentLog
 
 log = ExperimentLog(repo / ".kal" / "experiments.sqlite")
 if log.tried(campaign.campaign_id, lever=lever, parent=campaign.best):
-    # 这个父版本上试过该手段，换一个
+    # 这个父版本上试过该手段，换一个。INVALID 不算试过
     ...
-log.record(Attempt(...))
 ```
 
-症状字符串可以填，但仓库还不会从 ncu/SASS 生成症状。不要去实现诊断或知识库，除非任务明确要求。
+正确性失败的类别（`mismatch`、`input_modified`、`error`）在症状字段里。仓库还不会从 ncu/SASS 生成症状。不要去实现诊断或知识库，除非任务明确要求。
 
 ## 验证
 
@@ -81,7 +109,7 @@ log.record(Attempt(...))
 python3 -m pytest
 ```
 
-默认跳过 `thor`。改了 `CudaBackend` 且本机有 GPU、`nvcc`、`cuda-python` 时再跑：
+默认跳过 `thor`。改了 `CudaBackend` 或 `evaluate` 的 GPU 路径，且本机有 GPU、`nvcc`、`cuda-python` 时再跑：
 
 ```bash
 python3 -m pytest -m thor --override-ini="addopts="

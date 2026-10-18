@@ -52,6 +52,14 @@ def test_campaigns_are_isolated(tmp_path):
     assert [a.commit for a in log.attempts("rms-2")] == ["b1"]
 
 
+# 用例: 环境作废的尝试不占手段名，同一父版本上还可以再试
+# 参数: tmp_path 是存放 sqlite 日志的临时目录
+def test_invalid_attempt_does_not_count_as_tried(tmp_path):
+    log = ExperimentLog(tmp_path / "log.sqlite")
+    log.record(attempt("a1", "a0", "vectorize-loads", "invalid"))
+    assert not log.tried("rms-1", lever="vectorize-loads", parent="a0")
+
+
 # 用例: 同一个父版本上试过的手段能查到，换父版本或换手段则查不到
 # 参数: tmp_path 是存放 sqlite 日志的临时目录
 def test_tried_dedupes_a_lever_on_the_same_parent_only(tmp_path):
