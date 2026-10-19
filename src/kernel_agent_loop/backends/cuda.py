@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 import shutil
 import subprocess
 import tempfile
@@ -63,11 +64,16 @@ def _gpu_arch() -> str:
 
 
 def _load_launch_config(path: Path):
-    spec = importlib.util.spec_from_file_location("kal_cuda_launch", path)
+    # Unique module name per path so placeholder and real launch.py do not collide in sys.modules.
+    mod_name = f"kal_cuda_launch_{abs(hash(str(path.resolve())))}"
+    spec = importlib.util.spec_from_file_location(mod_name, path)
     if spec is None or spec.loader is None:
         raise BuildError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = module
     spec.loader.exec_module(module)
+    if not hasattr(module, "launch_config"):
+        raise BuildError(f"{path} has no launch_config")
     return module.launch_config
 
 

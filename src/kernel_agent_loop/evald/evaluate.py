@@ -204,11 +204,12 @@ def _load_incumbent(
         return None
     try:
         artifact = backend.build(directory)
+        # Placeholder best may build a cubin but lack a real launch_config; treat as no incumbent.
+        return _bind_run(
+            artifact, backend, isolate=isolate, run_timeout=run_timeout, worker_args=worker_args
+        )
     except Exception:
-        # The pinned best may be a placeholder that does not build. That is "no incumbent",
-        # not a failure of the candidate being evaluated.
         return None
-    return _bind_run(artifact, backend, isolate=isolate, run_timeout=run_timeout, worker_args=worker_args)
 
 
 def _materialize_impl(repo: Path, sha: str, impl_rel: str) -> Path | None:

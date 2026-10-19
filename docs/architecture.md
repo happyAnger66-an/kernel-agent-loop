@@ -429,3 +429,12 @@ ops/<op>/impls/cuda/
 - `evaluate`：本地便利封装；`isolate=True` 时 kernel `run` 走子进程 JSONL。
 - `evald_run`：Thor 侧 `flock` → `overlay_bundle` → `measure` → 写出 JSON。
 - `EvalClient`：`mode="local"` 或 `mode="ssh"` 同步 `submit_sync(bundle) -> EvalResult`；Gate 仍在开发机。
+
+### 9.9 Phase 2.5（Thor 运营闭环）
+
+已在 `thor-003`（`ssh nvidia@tz -p 2240`）验证：
+
+- 部署布局 `~/kal/{src,trusted,jobs,inbox,venv}`，见 `deploy/thor/`。
+- Jetson 上 `nvidia-smi` 的 pstate/clocks 常为 `[N/A]`；`read_gpu_env` 回退到 `nvpmodel` + `/sys/class/devfreq/gpu-gpc-0`。
+- `prepare_thor_session` 使用 `sudo -n nvpmodel` / `jetson_clocks`。
+- 验收：`pytest -m thor` 在板端通过；开发机 `deploy/thor/smoke_ssh.py` 对错误候选 REJECT、正确候选 ACCEPT（含隐藏 shape）。

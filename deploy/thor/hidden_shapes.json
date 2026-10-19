@@ -1,0 +1,10 @@
+[
+  {
+    "label": "hidden-r16-h2048",
+    "dims": {"rows": 16, "hidden": 2048}
+  },
+  {
+    "label": "hidden-r4-h8192",
+    "dims": {"rows": 4, "hidden": 8192}
+  }
+]

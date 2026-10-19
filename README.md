@@ -28,6 +28,8 @@
 
 还没有的部分：常驻 evald 守护进程、ncu/SASS 症状诊断、L2 调优库、AiInfraKB 接入、Triton 和 CuTe DSL 后端。
 
+Thor 真机部署与 SSH 冒烟见 [`deploy/thor/README.md`](deploy/thor/README.md)（示例主机 `ssh nvidia@tz -p 2240`）。
+
 ## 安装
 
 需要 Python 3.10 以上。在仓库根目录：

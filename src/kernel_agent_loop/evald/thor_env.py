@@ -14,13 +14,9 @@ def prepare_thor_session(*, nvpmodel_mode: str = "0") -> list[str]:
     if nvpmodel is None:
         notes.append("nvpmodel not found; skipped")
     else:
-        completed = subprocess.run(
-            [nvpmodel, "-m", nvpmodel_mode],
-            capture_output=True,
-            text=True,
-        )
+        completed = _run_privileged([nvpmodel, "-m", nvpmodel_mode])
         if completed.returncode != 0:
-            notes.append(f"nvpmodel failed: {completed.stderr.strip() or completed.stdout.strip()}")
+            notes.append(f"nvpmodel failed: {_err(completed)}")
         else:
             notes.append(f"nvpmodel -m {nvpmodel_mode}")
 
@@ -28,12 +24,26 @@ def prepare_thor_session(*, nvpmodel_mode: str = "0") -> list[str]:
     if jetson_clocks is None:
         notes.append("jetson_clocks not found; skipped")
     else:
-        completed = subprocess.run([jetson_clocks], capture_output=True, text=True)
+        completed = _run_privileged([jetson_clocks])
         if completed.returncode != 0:
-            notes.append(f"jetson_clocks failed: {completed.stderr.strip() or completed.stdout.strip()}")
+            notes.append(f"jetson_clocks failed: {_err(completed)}")
         else:
             notes.append("jetson_clocks")
 
     for note in notes:
         print(note, file=sys.stderr)
     return notes
+
+
+def _run_privileged(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Prefer passwordless sudo (Thor eval account); fall back to direct exec."""
+    sudo = shutil.which("sudo")
+    if sudo is not None:
+        via_sudo = subprocess.run([sudo, "-n", *cmd], capture_output=True, text=True)
+        if via_sudo.returncode == 0 or "password" not in (via_sudo.stderr or "").lower():
+            return via_sudo
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def _err(completed: subprocess.CompletedProcess[str]) -> str:
+    return (completed.stderr or completed.stdout or "").strip()

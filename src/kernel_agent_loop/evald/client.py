@@ -23,9 +23,11 @@ class EvalClient:
     config: EvaldConfig | None = None
     host: str = ""
     user: str = ""
+    port: int | None = None
     remote_workdir: str = "/tmp/kal-eval"
     evald_cmd: str = "python -m kernel_agent_loop.evald.serve"
     remote_config: str = ""
+    remote_env: str = "export PATH=/usr/local/cuda/bin:$PATH"
     ssh_opts: tuple[str, ...] = ()
     backend: object | None = None
     env_probe: object | None = None
@@ -52,26 +54,46 @@ class EvalClient:
         job = uuid.uuid4().hex
         remote_dir = f"{self.remote_workdir.rstrip('/')}/{job}"
         target = self._ssh_target()
-        self._run(["ssh", *self.ssh_opts, target, f"mkdir -p {remote_dir}"])
+        self._run(["ssh", *self._ssh_args(), target, f"mkdir -p {remote_dir}"])
         with tempfile.TemporaryDirectory(prefix="kal-client-") as tmp:
             local_bundle = Path(tmp) / "candidate.tar.gz"
             local_result = Path(tmp) / "result.json"
             local_bundle.write_bytes(bundle)
-            self._run(["scp", *self.ssh_opts, str(local_bundle), f"{target}:{remote_dir}/candidate.tar.gz"])
+            self._run(
+                ["scp", *self._scp_args(), str(local_bundle), f"{target}:{remote_dir}/candidate.tar.gz"]
+            )
             remote_result = f"{remote_dir}/result.json"
-            cmd = (
+            remote_cmd = (
+                f"{self.remote_env}; "
                 f"{self.evald_cmd} --config {self.remote_config} "
                 f"--bundle {remote_dir}/candidate.tar.gz --result {remote_result}"
             )
-            self._run(["ssh", *self.ssh_opts, target, cmd])
-            self._run(["scp", *self.ssh_opts, f"{target}:{remote_result}", str(local_result)])
+            self._run(["ssh", *self._ssh_args(), target, remote_cmd])
+            self._run(["scp", *self._scp_args(), f"{target}:{remote_result}", str(local_result)])
             data = json.loads(local_result.read_text())
-        # Best-effort cleanup; ignore failures.
-        subprocess.run(["ssh", *self.ssh_opts, target, f"rm -rf {remote_dir}"], check=False)
+        subprocess.run(
+            ["ssh", *self._ssh_args(), target, f"rm -rf {remote_dir}"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
         return eval_result_from_dict(data)
 
     def _ssh_target(self) -> str:
         return f"{self.user}@{self.host}" if self.user else self.host
+
+    def _ssh_args(self) -> list[str]:
+        args = list(self.ssh_opts)
+        if self.port is not None:
+            args = ["-p", str(self.port), *args]
+        return args
+
+    def _scp_args(self) -> list[str]:
+        # scp uses -P for port; ssh uses -p.
+        args = list(self.ssh_opts)
+        if self.port is not None:
+            args = ["-P", str(self.port), *args]
+        return args
 
     @staticmethod
     def _run(cmd: list[str]) -> None:
