@@ -1,0 +1,4 @@
+# Local agent-kit marker — which profiles this repo uses.
+profiles = [
+  "product-dev",
+]
