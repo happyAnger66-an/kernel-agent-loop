@@ -66,6 +66,47 @@ else:
 
 `evaluate` 会编译、做正确性、和 `campaign.best` 交替计时、读环境快照、调用 `AcceptanceGate`，并把判定写入 `log`。它不修改最优指针。`campaign.best` 编不过时当作没有 incumbent，第一个正确候选会被接受。默认 shape 是 `spec.public_shapes()`；隐藏 shape 由调用方追加到 `shapes`。默认环境探针是 `nvidia-smi`，频率或温度不合格会得到 `INVALID`。
 
+在 Thor 上评测时不要本机 `evaluate`，改为打包后走 `EvalClient`：
+
+```python
+from kernel_agent_loop.evald.bundle import make_bundle
+from kernel_agent_loop.evald.client import EvalClient
+from kernel_agent_loop.core.gate import AcceptanceGate
+from kernel_agent_loop.evald.env_guard import EnvGuard
+from kernel_agent_loop.core.experiment_log import Attempt, ExperimentLog
+
+bundle = make_bundle(
+    repo, campaign.op, campaign.backend,
+    {
+        "campaign": campaign.campaign_id,
+        "commit": sha,
+        "parent": campaign.best,
+        "op": campaign.op,
+        "backend": campaign.backend,
+        "lever": lever,
+        "hypothesis": hypothesis,
+    },
+)
+result = EvalClient(
+    mode="ssh", host="<thor>", user="<user>", remote_config="/opt/kal/evald.config.json",
+).submit_sync(bundle)
+decision = AcceptanceGate(env_guard=EnvGuard(max_temp_drift_c=5.0), min_gain_pct=1.0).decide(result)
+log.record(Attempt(
+    campaign=campaign.campaign_id, commit=sha, parent=campaign.best,
+    lever=lever, hypothesis=hypothesis, verdict=decision.verdict.value,
+    symptoms=(), per_shape={
+        label: {
+            "candidate_us": perf.candidate_us,
+            "incumbent_us": perf.incumbent_us,
+            "noise_pct": perf.noise_pct,
+        }
+        for label, perf in result.per_shape.items()
+    },
+))
+```
+
+Thor 配置示例在 `deploy/thor/`。`evald_run` 持 `flock`、overlay 候选包、可选 `nvpmodel`/`jetson_clocks`，只回传 `EvalResult`；接受或回退仍由你在开发机根据 `decision` 调用 `accept` / `revert`。
+
 `commit_candidate` 只会把 `ops/<op>/impls/<backend>/` 的改动放进提交。该目录以外的修改留在工作区，不会被这次提交带走。
 
 `StaticJudge` 会拒绝实现目录以外的路径，以及源码里的 `subprocess`、`socket`、`os.environ`、`open(`、`fopen(`、`system(`。
@@ -119,4 +160,4 @@ python3 -m pytest -m thor --override-ini="addopts="
 
 ## 还没实现
 
-不要假设下面这些已经存在：`kal` 命令、MCP、evald 守护进程、Triton / CuTe DSL / TIRx 后端、ncu 症状映射、L2 调优库、AiInfraKB。
+不要假设下面这些已经存在：`kal` 命令、MCP、常驻 evald 守护进程、Triton / CuTe DSL / TIRx 后端、ncu 症状映射、L2 调优库、AiInfraKB。按次调用的 `evald_run` / `EvalClient`（含 SSH 同步）已经可用。

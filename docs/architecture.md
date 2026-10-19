@@ -421,4 +421,11 @@ ops/<op>/impls/cuda/
 5. 评测前后各取一次环境快照，默认读 `nvidia-smi`。
 6. `AcceptanceGate.decide`，把判定写入 `ExperimentLog`。
 
-`Verdict.INVALID` 会留下记录，但 `tried` 忽略它，同一次环境故障不占用手段名。SSH、子进程隔离和 GPU 互斥还没接上；这一步仍在调用 `evaluate` 的机器上跑。
+`Verdict.INVALID` 会留下记录，但 `tried` 忽略它，同一次环境故障不占用手段名。
+
+远程路径已落地为库接口（仍无常驻守护进程）：
+
+- `measure`：只产出 `EvalResult`（无 Gate、无实验日志）。
+- `evaluate`：本地便利封装；`isolate=True` 时 kernel `run` 走子进程 JSONL。
+- `evald_run`：Thor 侧 `flock` → `overlay_bundle` → `measure` → 写出 JSON。
+- `EvalClient`：`mode="local"` 或 `mode="ssh"` 同步 `submit_sync(bundle) -> EvalResult`；Gate 仍在开发机。

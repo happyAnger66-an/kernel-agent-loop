@@ -1,1 +1,1 @@
-"""Evaluator: bundles, correctness, timing, and environment checks."""
+"""Evaluator: bundles, correctness, timing, environment checks, and remote evald."""

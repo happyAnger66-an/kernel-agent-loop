@@ -10,7 +10,7 @@
 
 ## 当前能用什么
 
-已经能用的是库，不是命令行。没有 `kal` CLI，没有 MCP，也没有常驻的评测守护进程。
+已经能用的是库，不是命令行。没有 `kal` CLI，也没有 MCP。Thor 侧是**按次调用的 `evald_run`**（`flock` 互斥），不是常驻守护进程。
 
 | 能力 | 入口 |
 |---|---|
@@ -18,14 +18,15 @@
 | 候选的提交、接受、回退 | `Campaign`。每个 campaign 一条分支 `kal/<id>`，最优提交记在 `.git/kal/<id>.json` |
 | 正确性 | `check_correctness`：每轮新种子、输出先填 NaN、核对输入没被改写 |
 | 计时统计 | `interleaved_bench`：候选和当前最优交替跑，噪声取逐轮中位数的极差 |
-| 接受门禁 | `AcceptanceGate` |
+| 接受门禁 | `AcceptanceGate`（开发机） |
 | 静态检查 | `StaticJudge`：只允许改实现目录，拦截进程、网络和文件逃逸 |
 | 实验日志 | `ExperimentLog`：记录每次尝试，按 campaign 和父版本去重手段 |
 | 候选包 | `make_bundle` / `overlay_bundle`：包里只有实现目录 |
 | CUDA 后端 | `CudaBackend`：编译 cubin 并用 `run(inputs, outputs, shape)` 启动 |
-| 一次评测 | `evaluate`：编译当前实现，做正确性、交替计时和环境快照，交给门禁并写入实验日志 |
+| 本地评测 | `evaluate`：编译、正确性、交替计时、环境快照、门禁、写日志；`isolate=True` 时 kernel 在子进程跑 |
+| Thor 评测 | `evald_run` / `EvalClient`：`flock` → overlay 候选包 → `measure` → 回传 `EvalResult`；Gate 仍在开发机 |
 
-还没有的部分：SSH 到 Thor 的评测进程、ncu/SASS 症状诊断、L2 调优库、AiInfraKB 接入、Triton 和 CuTe DSL 后端。`evaluate` 在当前进程里跑，不是常驻守护进程。
+还没有的部分：常驻 evald 守护进程、ncu/SASS 症状诊断、L2 调优库、AiInfraKB 接入、Triton 和 CuTe DSL 后端。
 
 ## 安装
 
@@ -102,6 +103,49 @@ else:
 ```
 
 `Campaign.load(repo, "rms-1")` 可以在新会话里恢复同一个 campaign。
+
+## Thor 远程评测
+
+开发机打包，Thor 独占 GPU 跑完再回传结果。Gate 和实验日志仍在开发机。
+
+Thor 上准备可信树与配置（示例见 [`deploy/thor/`](deploy/thor/)）：
+
+```bash
+# 在 Thor 上，配置文件指向可信源码树、job 目录、锁文件、隐藏 shape
+python -m kernel_agent_loop.evald.serve \
+  --config /opt/kal/evald.config.json \
+  --bundle /tmp/job/candidate.tar.gz \
+  --result /tmp/job/result.json
+```
+
+开发机侧：
+
+```python
+from kernel_agent_loop.evald.bundle import make_bundle
+from kernel_agent_loop.evald.client import EvalClient
+from kernel_agent_loop.core.gate import AcceptanceGate
+from kernel_agent_loop.evald.env_guard import EnvGuard
+
+bundle = make_bundle(
+    repo, campaign.op, campaign.backend,
+    {
+        "campaign": campaign.campaign_id,
+        "commit": sha,
+        "parent": campaign.best,
+        "op": campaign.op,
+        "backend": campaign.backend,
+        "lever": "vectorize-loads",
+        "hypothesis": "用 128-bit load 提高访存宽度",
+    },
+)
+# 本地联调：mode="local" + EvaldConfig(...)
+# 真机：mode="ssh", host=..., user=..., remote_config="/opt/kal/evald.config.json"
+client = EvalClient(mode="ssh", host="thor", user="kal", remote_config="/opt/kal/evald.config.json")
+result = client.submit_sync(bundle)
+decision = AcceptanceGate(env_guard=EnvGuard(max_temp_drift_c=5.0), min_gain_pct=1.0).decide(result)
+```
+
+`EvaldConfig.prepare_env=true` 时会尽量执行 `nvpmodel` 与 `jetson_clocks`（工具不存在则跳过）。隐藏 shape 只放在 Thor 配置里，不进仓库。默认 `isolate=true`：编译在父进程，kernel `run` 在子进程，stdout 只传 JSONL。
 
 门禁顺序是：编译失败或不正确则拒绝；降频、功耗模式变化、频率变化或温漂超过 5°C 则这次结果作废；没有当前最优版本的第一个正确候选直接接受。之后要同时满足两条才接受，否则回退：
 

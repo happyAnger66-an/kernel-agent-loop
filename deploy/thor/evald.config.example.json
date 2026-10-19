@@ -1,0 +1,12 @@
+{
+  "trusted": "/opt/kal/trusted",
+  "work_root": "/opt/kal/jobs",
+  "lock_path": "/opt/kal/gpu.lock",
+  "ops_root": "/opt/kal/trusted/ops",
+  "hidden_shapes_path": "/opt/kal/hidden_shapes.json",
+  "isolate": true,
+  "prepare_env": true,
+  "rounds": 5,
+  "reps": 3,
+  "run_timeout": 120
+}
