@@ -7,7 +7,7 @@ alwaysApply: true
 
 # 一刀一功能一 commit
 
-每完成一个可独立说明的原子功能，单独提交一次 commit；message 写清做了什么（一句话即可）。
+每完成一个可独立说明的原子功能，单独提交一次 commit。标题格式见 `conventional-commit`。
 
 - 禁止把多个无关功能捆进同一笔 commit
 - 若本地已混多项，先拆成清晰几笔再 push

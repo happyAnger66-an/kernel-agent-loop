@@ -167,6 +167,7 @@ python3 -m pytest -m thor --override-ini="addopts="
 由 agent-kit 0.1.0 生成，不要手改。规范正文在 `.cursor/rules/agent-kit/`。
 
 - **respond-in-chinese**（always）：与用户交流一律使用简体中文；代码、标识符、提交信息按目标仓库约定
+- **conventional-commit**（always）：提交时 commit 标题必须以类型前缀说明改动分类
 - **test-first**（always）：实现需求前先写测试，review 通过后再编码
 - **bug-regression**（always）：修 bug 必须带回归测试，复现原失败路径
 - **test-layout**（globs: tests/**,**/*_test.py,**/test_*.py）：测试代码放在 tests/，按被测对象组织，不与源码混排
@@ -177,7 +178,10 @@ python3 -m pytest -m thor --override-ini="addopts="
 - **tvm-relax-core-boundary**（always）：tvm-relax 只管核心编译
 - **perf-profiler-ab**（always）：负向或未达预期的性能改动收工前，必须用 profiler（nsys/ncu 等）做 A/B，禁止只交 wall-clock
 - **perf-baseline-dual-track**（always）：抬全链路 baseline 必须交 stages+e2e 与 overall+per-dim；速度轨与精度轨分开，禁止只报 denoise
+- **aiinfrakb-optimization-loop**（on-demand）：在某硬件上优化某模型的推理时，必须先 kb next 只做返回的那一格，再用 kb propose 钉回地图
+- **aiinfrakb-work-env**（on-demand）：连接任何机器（Thor、PRO5000、gpu-4090…）或服务（Model Forge 测试/生产…）前，必须先用 kb env 查 AiInfraKB 的环境条目并遵守 guardrails
 - **atomic-commit**（always）：每完成一个原子功能单独提交一次 commit，message 写清做了什么
 - **docs-sync**（always）：改了对外行为、接口或用法时，同一改动里更新对应文档
+- **release-changelog**（on-demand）：给运行时仓库发版或改 release.sh、pack.sh、CHANGELOG 时，改动说明写进 CHANGELOG 并由 release.sh 门禁
 
 <!-- agent-kit:end -->
