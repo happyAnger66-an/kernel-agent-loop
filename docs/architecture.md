@@ -400,6 +400,7 @@ evald 用 campaign 创建时锁定的可信源码树，把 `impl/` **整体替�
   - 以下只在 headroom > 1.15（或没测下限）时报，因为贴着下限的访存型 kernel 本来就该等访存：`l2-refetch`（L2 读/写扇区 × 32 B 超过 spec 理想字节 1.25 倍；按 SM 广播的操作数会让小 grid 天然偏高）、`underfilled-gpu`（grid < SM 数）、`tail-wave`（1–8 波且最后一波 ≤ 50%）、`occupancy-limited`（理论 occupancy < 50%，给出限制因素）、`barrier-stall`（barrier 占 stall 周期 > 20%）、`memory-latency-bound`（long_scoreboard > 50% 且 L2 吞吐 < 40%）。
   - `near-floor`：headroom < 1.08，提示别再在这个 shape 上花轮次。
   - 同一症状跨 shape 合成一行：`[code] shape: 证据; ... Try: 手段 | ... Basis: 依据`，写进 `EvalResult.symptoms`，`run_round` 把它记进实验日志。手段是起点建议，哪条真有效要看日志里的实测结果。
+  - 规则表里每个手段有一个 id（如 `vector-16b`、`warp-per-row`）。Agent 照着某条症状改时用这个 id 当 `lever`，并传 `run_round(target=症状码)`；日志多两列 `target` 和 `profiled`（老库打开时自动补列）。`kernel_agent_loop.tuning` 按 `target` 统计每个手段的尝试、接受、症状消除（有 profile 的正确尝试里目标码消失）和几何平均加速的中位数，按 `(接受 + 1) / (尝试 + 2)` 排序：试过且有效的在前，没试过的种子手段 0.5，试过失败的在后。当前 best 的症状取该 campaign 最近一次接受的记录。
   - 规则在 Thor 上用标注样本验证（`tests/evald/test_diagnose.py`）：标量 baseline 必须报 `narrow-global-access`，向量化版不报，分块跨步版（`rmsnorm_strided.cu`）必须报 `uncoalesced-global-access`，单行 shape 必须报 `underfilled-gpu`。
 - 第一个候选没有 incumbent，只要正确且环境合格就接受，作为起点。
 - Gate 的判定顺序：编译失败或不正确判 `reject`；环境不合格判 `invalid`（需要重测）；任一 shape 的 `candidate_us` 低于 `min_floor_ratio`（默认 0.8）× `floor_us` 判 `reject` 并注明需人工复核；之后三条同时满足才判 `accept`，否则判 `revert`。每个 shape 只按自己的区间判，一个 shape 抖不会抬高其他 shape 的门槛：

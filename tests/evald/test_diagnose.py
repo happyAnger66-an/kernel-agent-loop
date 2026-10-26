@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from kernel_agent_loop.core.opspec import load_opspec
-from kernel_agent_loop.evald.diagnose import RULES, diagnose_shape, summarize
+from kernel_agent_loop.evald.diagnose import diagnose_shape, summarize, symptom_codes
 
 # Thor 上仓库 baseline（标量读、单 block）在 r1-h4096 的实测指标
 BASELINE_R1 = {
@@ -108,7 +108,14 @@ def test_summarize_groups_by_code_with_levers_and_basis():
     narrow = [line for line in lines if line.startswith("[narrow-global-access]")]
     assert len(narrow) == 1
     assert "r1:" in narrow[0] and "r8:" in narrow[0]
-    assert RULES["narrow-global-access"].levers[0] in narrow[0] and "Basis:" in narrow[0]
+    assert "Try: vector-16b (" in narrow[0] and "Basis:" in narrow[0]
+
+
+# 用例: 只认 [已知规则码] 开头的行，失败原因等其他文本忽略
+# 参数: 无
+def test_symptom_codes_parses_rule_lines_only():
+    lines = ("[underfilled-gpu] r1: 1 blocks", "[made-up] x", "mismatch r1: max_abs=1", "profile unavailable: x")
+    assert symptom_codes(lines) == {"underfilled-gpu"}
 
 
 IMAGE = "adas-img.nioint.com/r-lab/blackwell-aarch64:latest"

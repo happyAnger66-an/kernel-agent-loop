@@ -68,9 +68,10 @@ def setup(op_repo, repo_root, tmp_path):
     log = ExperimentLog(tmp_path / "experiments.sqlite")
     gate = AcceptanceGate(env_guard=EnvGuard(max_temp_drift_c=5.0), min_gain_pct=1.0)
 
-    def round_(source: str, lever: str):
+    def round_(source: str, lever: str, target: str = ""):
         (op_repo / IMPL / "kernel.cu").write_text(source)
-        return run_round(campaign, client=client, log=log, gate=gate, lever=lever, hypothesis="unit")
+        return run_round(campaign, client=client, log=log, gate=gate, lever=lever, hypothesis="unit",
+                         target=target)
 
     return campaign, log, round_, op_repo
 
@@ -112,3 +113,16 @@ def test_same_lever_on_same_parent_is_refused(setup):
     assert round_("CANDIDATE_SLOW\n", "x").decision.verdict is Verdict.REVERT
     with pytest.raises(AlreadyTried):
         round_("CANDIDATE_SLOW\n", "x")
+
+
+# 用例: target 记进日志；没有 ncu profile 时 profiled 为假；未知症状码直接报错、不提交
+# 参数: setup 提供 campaign、日志、单轮驱动和临时仓库
+def test_target_is_recorded_and_validated(setup):
+    campaign, log, round_, _ = setup
+    round_("CANDIDATE_OK\n", "vector-16b", target="narrow-global-access")
+    attempt = log.attempts("rms-1")[-1]
+    assert attempt.target == "narrow-global-access" and attempt.profiled is False
+    best = campaign.best
+    with pytest.raises(ValueError):
+        round_("CANDIDATE_SLOW\n", "y", target="not-a-symptom")
+    assert campaign.best == best and len(log.attempts("rms-1")) == 1

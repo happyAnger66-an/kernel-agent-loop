@@ -23,52 +23,58 @@ STALLS = (
 
 @dataclass(frozen=True)
 class Rule:
-    levers: tuple[str, ...]
+    levers: tuple[tuple[str, str], ...]  # (lever id to pass as run_round's lever, description)
     basis: str
 
 
 RULES = {
     "narrow-global-access": Rule(
-        ("load/store 16 B per thread (uint4 / 8 halves) from 16 B-aligned addresses, scalar tail for the rest",),
+        (("vector-16b", "load/store 16 B per thread (uint4 / 8 halves) from 16 B-aligned addresses, "
+                        "scalar tail for the rest"),),
         "sectors per request = bytes per thread for contiguous access; ideal 16 (CUDA Best Practices)",
     ),
     "uncoalesced-global-access": Rule(
-        ("make consecutive threads touch consecutive 16 B chunks; stage through shared memory if the "
-         "natural layout is strided",),
+        (("coalesce-threads", "make consecutive threads touch consecutive 16 B chunks"),
+         ("smem-transpose", "stage through shared memory when the natural layout is strided")),
         "more than 16 sectors per warp request cannot come from contiguous access (ncu UncoalescedAccess)",
     ),
     "l2-refetch": Rule(
-        ("read each input once: keep the row in registers or shared memory between passes",
-         "order blocks so data reused across blocks is still in L2"),
+        (("single-pass-row", "read each input once: keep the row in registers or shared memory between passes"),
+         ("block-order-l2", "order blocks so data reused across blocks is still in L2")),
         "L2 sectors from L1 vs the spec's ideal bytes (ncu MemoryCacheAccessPattern)",
     ),
     "underfilled-gpu": Rule(
-        ("split each row across several blocks (thread-block cluster / DSMEM or a two-pass reduction)",
-         "shorten the per-block dependency chain: one warp per row, warp-shuffle reduction, no __syncthreads"),
+        (("split-row-blocks", "split each row across several blocks (thread-block cluster / DSMEM or a "
+                              "two-pass reduction)"),
+         ("warp-per-row", "shorten the per-block dependency chain: one warp per row, warp-shuffle reduction, "
+                          "no __syncthreads")),
         "fewer blocks than SMs leaves SMs idle (ncu LaunchStatistics)",
     ),
     "tail-wave": Rule(
-        ("pick rows per block so the block count is a multiple of SMs x resident blocks per SM",
-         "persistent grid of exactly SMs x blocks per SM with a grid-stride loop over rows"),
+        (("rows-per-block-waves", "pick rows per block so the block count is a multiple of SMs x resident "
+                                  "blocks per SM"),
+         ("persistent-grid", "persistent grid of exactly SMs x blocks per SM with a grid-stride loop over rows")),
         "a partial last wave idles the rest of the SMs (ncu LaunchStatistics)",
     ),
     "occupancy-limited": Rule(
-        ("lower registers per thread (__launch_bounds__, fewer live values) or shared memory per block",
-         "change block size so more blocks fit per SM"),
+        (("cut-registers", "lower registers per thread (__launch_bounds__, fewer live values) or shared "
+                           "memory per block"),
+         ("resize-block", "change block size so more blocks fit per SM")),
         "theoretical occupancy and its limiter (ncu TheoreticalOccupancy)",
     ),
     "barrier-stall": Rule(
-        ("replace shared-memory tree reductions with warp-shuffle reductions",
-         "cut __syncthreads: one warp per row, or a single block-wide sync"),
+        (("warp-shuffle-reduce", "replace shared-memory tree reductions with warp-shuffle reductions"),
+         ("fewer-syncs", "cut __syncthreads: one warp per row, or a single block-wide sync")),
         "share of warp stall cycles at barriers (ncu CPIStall / WarpStateStats)",
     ),
     "memory-latency-bound": Rule(
-        ("more bytes in flight per thread: 16 B accesses, unroll independent loads, prefetch the next row",
-         "more resident warps per SM"),
+        (("more-bytes-in-flight", "more bytes in flight per thread: 16 B accesses, unroll independent loads, "
+                                  "prefetch the next row"),
+         ("more-warps", "more resident warps per SM")),
         "warps mostly wait on global memory while L2 throughput stays low (ncu CPIStall + SpeedOfLight)",
     ),
     "near-floor": Rule(
-        ("leave this shape alone; spend rounds on shapes with more headroom",),
+        (("skip-shape", "leave this shape alone; spend rounds on shapes with more headroom"),),
         "candidate within 8% of the measured touch-kernel floor (evald.floor)",
     ),
 }
@@ -163,5 +169,17 @@ def summarize(findings: list[Finding]) -> tuple[str, ...]:
             continue
         rule = RULES[code]
         evidence = "; ".join(f"{f.shape}: {f.evidence}" for f in group)
-        lines.append(f"[{code}] {evidence}. Try: {' | '.join(rule.levers)}. Basis: {rule.basis}")
+        levers = " | ".join(f"{lever_id} ({text})" for lever_id, text in rule.levers)
+        lines.append(f"[{code}] {evidence}. Try: {levers}. Basis: {rule.basis}")
     return tuple(lines)
+
+
+def symptom_codes(symptoms) -> set[str]:
+    """Rule codes named by `[code] ...` symptom lines; other symptom text is ignored."""
+    codes = set()
+    for line in symptoms:
+        if line.startswith("[") and "]" in line:
+            code = line[1:line.index("]")]
+            if code in RULES:
+                codes.add(code)
+    return codes

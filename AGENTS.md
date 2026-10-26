@@ -117,7 +117,13 @@ Thor 上每个 shape 还会带 `floor_us`：一个只把全部输入读一遍、
 
 正确的候选在 Thor 上还会带回 `result.profile`：每个公开 shape 一份 ncu 指标（寄存器数、grid、occupancy、L1 每请求扇区数、L2 读写扇区、各类 warp stall）。改之前先看它判断瓶颈，例如 `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum / ..._requests_...` 远小于 16 说明全局读没向量化，`grid_size` 远小于 SM 数说明 GPU 大半空闲。ncu 下的 `gpu__time_duration` 含 replay 开销，不要拿它比快慢。
 
-`result.symptoms` 里以 `[code]` 开头的行是从这些指标归纳出的症状，每行带各 shape 的证据、候选手段（`Try:`）和判定依据（`Basis:`）。选下一轮手段时先看它：挑 headroom 大的 shape 上的症状下手，`near-floor` 的 shape 不要再动。`Try:` 只是起点，不保证有效；在 `hypothesis` 里写明你针对的是哪条症状，便于之后按“症状 → 手段 → 结果”统计。
+`result.symptoms` 里以 `[code]` 开头的行是从这些指标归纳出的症状，每行带各 shape 的证据、候选手段（`Try:`）和判定依据（`Basis:`）。选下一轮手段时先看它：挑 headroom 大的 shape 上的症状下手，`near-floor` 的 shape 不要再动。`Try:` 只是起点，不保证有效。
+
+选手段前先查历史：`python -m kernel_agent_loop.tuning --log .kal/<campaign>.sqlite --campaign <id>` 列出当前 best 的症状，以及每条症状下各手段的得分（平滑接受率，没试过的是 0.5）、尝试/接受次数、症状消除次数（`resolved`）和中位加速。照着某条症状改时：
+
+- `run_round(..., lever=<手段 id>, target=<症状码>)`。用 `Try:` 里的 id（如 `warp-per-row`）当 `lever`，统计才对得上；自创手段起一个简短的 kebab-case 名字，同样带上 `target`。
+- `target` 必须是已知症状码，否则直接报错。
+- 优先选得分高的手段；`resolved` 低但接受多，说明收益来自别处，不要当成这条症状的解法。
 
 只优化某一个 shape 时，让 campaign 的 shape 集合只包含它。不要为了「测得更全」加进交付范围外的 shape。
 

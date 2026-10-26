@@ -14,6 +14,11 @@ class Attempt:
     verdict: str
     symptoms: tuple[str, ...]
     per_shape: dict
+    target: str = ""  # symptom code the lever was aimed at, "" if none
+    profiled: bool = False  # symptoms came from an ncu profile, so a missing code means it is gone
+
+
+_COLUMNS = "campaign, commit_sha, parent, lever, hypothesis, verdict, symptoms, per_shape, target, profiled"
 
 
 class ExperimentLog:
@@ -35,15 +40,16 @@ class ExperimentLog:
             )
             """
         )
+        existing = {row[1] for row in self._db.execute("PRAGMA table_info(attempts)")}
+        if "target" not in existing:
+            self._db.execute("ALTER TABLE attempts ADD COLUMN target TEXT NOT NULL DEFAULT ''")
+        if "profiled" not in existing:
+            self._db.execute("ALTER TABLE attempts ADD COLUMN profiled INTEGER NOT NULL DEFAULT 0")
         self._db.commit()
 
     def record(self, attempt: Attempt) -> None:
         self._db.execute(
-            """
-            INSERT INTO attempts
-                (campaign, commit_sha, parent, lever, hypothesis, verdict, symptoms, per_shape)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            f"INSERT INTO attempts ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 attempt.campaign,
                 attempt.commit,
@@ -53,18 +59,20 @@ class ExperimentLog:
                 attempt.verdict,
                 json.dumps(list(attempt.symptoms)),
                 json.dumps(attempt.per_shape),
+                attempt.target,
+                int(attempt.profiled),
             ),
         )
         self._db.commit()
 
-    def attempts(self, campaign: str) -> list[Attempt]:
-        rows = self._db.execute(
-            """
-            SELECT campaign, commit_sha, parent, lever, hypothesis, verdict, symptoms, per_shape
-            FROM attempts WHERE campaign = ? ORDER BY id
-            """,
-            (campaign,),
-        ).fetchall()
+    def attempts(self, campaign: str | None = None) -> list[Attempt]:
+        """Attempts of one campaign, or of every campaign in this log when campaign is None."""
+        if campaign is None:
+            rows = self._db.execute(f"SELECT {_COLUMNS} FROM attempts ORDER BY id").fetchall()
+        else:
+            rows = self._db.execute(
+                f"SELECT {_COLUMNS} FROM attempts WHERE campaign = ? ORDER BY id", (campaign,)
+            ).fetchall()
         return [
             Attempt(
                 campaign=row[0],
@@ -75,6 +83,8 @@ class ExperimentLog:
                 verdict=row[5],
                 symptoms=tuple(json.loads(row[6])),
                 per_shape=json.loads(row[7]),
+                target=row[8],
+                profiled=bool(row[9]),
             )
             for row in rows
         ]
