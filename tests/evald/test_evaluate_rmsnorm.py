@@ -24,7 +24,7 @@ IMPL = "ops/rmsnorm/impls/cuda"
 STEADY = EnvSnapshot(power_mode="MAXN", gpu_clock_mhz=1575, temp_c=50.0, throttled=False)
 SPIN = """  if (threadIdx.x == 0) {
     unsigned long long start = clock64();
-    while (clock64() - start < 80000000ULL) {}
+    while (clock64() - start < 20000ULL) {}
   }
   __syncthreads();
 """
@@ -87,7 +87,18 @@ def test_checked_in_rmsnorm_is_accepted_as_first_candidate(op_repo, repo_root):
     assert campaign.best != outcome.result.commit
 
 
-# 用例: 在正确 kernel 上插入空转后，相对该 incumbent 必须回退
+# 用例: 128-bit 向量化 + warp shuffle 的 RMSNorm 相对朴素 incumbent 必须被接受
+# 参数: op_repo 是临时 git 仓库；repo_root 用来加载仓库里的 rmsnorm 契约和正确 kernel
+def test_vectorized_rmsnorm_is_accepted_over_naive(op_repo, repo_root):
+    fast = (repo_root / "tests/evald/rmsnorm_vec.cu").read_text()
+    _, campaign, _, outcome = _evaluate(
+        op_repo, repo_root, fast, lever="vec128-warp-reduce", pin_current_as_best=True
+    )
+    assert outcome.decision.verdict is Verdict.ACCEPT, outcome.decision.reasons
+    assert all(perf.candidate_us < perf.incumbent_us for perf in outcome.result.per_shape.values())
+
+
+# 用例: 在正确 kernel 上插入约 20k 周期（十几微秒）空转后，相对该 incumbent 必须回退
 # 参数: op_repo 是临时 git 仓库；repo_root 用来加载仓库里的 rmsnorm 契约和正确 kernel
 def test_slower_rmsnorm_is_reverted(op_repo, repo_root):
     correct = (repo_root / "ops/rmsnorm/impls/cuda/kernel.cu").read_text()

@@ -12,9 +12,12 @@
   inbox/                   # SSH 上传的候选包
   venv/                    # Python 环境（含 cuda-python）
   evald.config.json
-  hidden_shapes.json
+  hidden_shapes.json       # 只在 Thor 上维护，不进仓库
   gpu.lock
 ```
+
+`hidden_shapes.json` 不提交到仓库（Agent 能读到仓库就能针对它调参）。bootstrap 首次会从
+`hidden_shapes.example.json` 生成一份，之后请直接在 Thor 上改成私有的 shape，再次 bootstrap 不会覆盖。
 
 ## 从开发机同步并引导
 

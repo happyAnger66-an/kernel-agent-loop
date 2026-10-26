@@ -21,7 +21,11 @@ rsync -a --delete \
   "$REPO_SRC/" "$KAL_ROOT/trusted/"
 
 cp -f "$REPO_SRC/deploy/thor/evald.config.json" "$KAL_ROOT/evald.config.json"
-cp -f "$REPO_SRC/deploy/thor/hidden_shapes.json" "$KAL_ROOT/hidden_shapes.json"
+# Hidden shapes live only on Thor; seed from the example once, then edit in place.
+if [[ ! -f "$KAL_ROOT/hidden_shapes.json" ]]; then
+  cp "$REPO_SRC/deploy/thor/hidden_shapes.example.json" "$KAL_ROOT/hidden_shapes.json"
+  echo "WARN: seeded $KAL_ROOT/hidden_shapes.json from example — replace with private shapes" >&2
+fi
 
 python3 -m venv "$KAL_ROOT/venv"
 # shellcheck disable=SC1091

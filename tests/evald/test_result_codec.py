@@ -20,3 +20,21 @@ def test_eval_result_roundtrip():
     )
     restored = eval_result_from_dict(eval_result_to_dict(original))
     assert restored == original
+
+
+# 用例: 正确性失败的症状经序列化后保留，旧格式缺字段时为空
+# 参数: 无
+def test_eval_result_symptoms_roundtrip():
+    env = EnvSnapshot(power_mode="MAXN", gpu_clock_mhz=1575, temp_c=48.0, throttled=False)
+    original = EvalResult(
+        commit="abc",
+        compile_ok=True,
+        correct=False,
+        env_before=env,
+        env_after=env,
+        symptoms=("mismatch r1-h4096: max_abs=1.0",),
+    )
+    data = eval_result_to_dict(original)
+    assert eval_result_from_dict(data) == original
+    del data["symptoms"]
+    assert eval_result_from_dict(data).symptoms == ()

@@ -48,10 +48,19 @@ class SubprocessKernelRunner:
         self.run(inputs, outputs, shape)
 
     def run(self, inputs: dict, outputs: dict, shape: Shape) -> None:
+        response = self._request("run", inputs, outputs, shape)
+        for name, payload in response["outputs"].items():
+            outputs[name][...] = decode_array(payload)
+
+    def bench(self, inputs: dict, outputs: dict, shape: Shape) -> float:
+        """Per-launch microseconds as timed inside the child, excluding this IPC round trip."""
+        return float(self._request("bench", inputs, outputs, shape)["us"])
+
+    def _request(self, cmd: str, inputs: dict, outputs: dict, shape: Shape) -> dict:
         if self._proc.poll() is not None:
             raise RunnerError(f"runner exited early: {self._stderr()}")
         request = {
-            "cmd": "run",
+            "cmd": cmd,
             "shape": {"label": shape.label, "dims": shape.dims},
             "inputs": {name: encode_array(value) for name, value in inputs.items()},
             "outputs": {name: encode_array(value) for name, value in outputs.items()},
@@ -68,8 +77,7 @@ class SubprocessKernelRunner:
             raise RunnerError(f"invalid runner response: {line!r}; stderr={self._stderr()}") from exc
         if not response.get("ok"):
             raise RunnerError(response.get("error", "runner failed"))
-        for name, payload in response["outputs"].items():
-            outputs[name][...] = decode_array(payload)
+        return response
 
     def close(self) -> None:
         if self._proc.poll() is not None:

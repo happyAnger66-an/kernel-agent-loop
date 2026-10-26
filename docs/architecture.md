@@ -387,6 +387,7 @@ evald 用 campaign 创建时锁定的可信源码树，把 `impl/` **整体替�
 
 ### 9.5 计时与判定
 
+- 计时测的是 kernel 设备时间：`CudaKernel` 把 cubin 加载进进程级 primary context 一次；`bench()` 上传一次输入，每次 launch 前用 `cuMemsetD8Async` 写一块 `max(2×L2, 8 MiB)` 的缓冲来冲掉 L2，用 CUDA Event 只包住 launch，取单次 launch 的中位数。`isolate=True` 时 `bench` 在子进程里执行，只回传耗时，JSONL 往返不计入。没有 `bench()` 的 runner（单测里的假后端）才退回墙钟。
 - 候选和**当前最优版本（incumbent）**在同一会话里交替运行，抵消温度和频率漂移。
 - 每个 shape 得到一个 `ShapePerf`：候选和 incumbent 各自的逐轮中位数再取中位数；`noise_pct` 是 incumbent 逐轮中位数的极差除以中位数。
 - 第一个候选没有 incumbent，只要正确且环境合格就接受，作为起点。
@@ -417,7 +418,7 @@ ops/<op>/impls/cuda/
 1. 编译候选。`BuildError` 记为编译失败并拒绝。
 2. `campaign.best` 能编译就作为 incumbent；编不过（例如还是占位实现）就当作没有 incumbent。
 3. `check_correctness`。失败则拒绝，失败类别写入实验日志的症状。
-4. 对每个 shape 做 `interleaved_bench`，墙钟包住一次 `run`。
+4. 对每个 shape 做 `interleaved_bench`，每次采样调用 runner 的 `bench()`（见 9.5）。
 5. 评测前后各取一次环境快照，默认读 `nvidia-smi`。
 6. `AcceptanceGate.decide`，把判定写入 `ExperimentLog`。
 

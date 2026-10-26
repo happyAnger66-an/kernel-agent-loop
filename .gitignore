@@ -2,3 +2,5 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+*.egg-info/
+deploy/thor/hidden_shapes.json

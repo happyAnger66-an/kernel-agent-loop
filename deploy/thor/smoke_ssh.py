@@ -77,7 +77,10 @@ def main() -> None:
         print(ok_result.compile_ok, ok_result.correct, sorted(ok_result.per_shape), ok_decision.verdict)
         assert ok_result.compile_ok and ok_result.correct
         assert ok_decision.verdict is Verdict.ACCEPT
-        assert "hidden-r16-h2048" in ok_result.per_shape
+        assert any(label.startswith("hidden-") for label in ok_result.per_shape)
+        assert any("mismatch" in s for s in wrong_result.symptoms)
+        for label, perf in sorted(ok_result.per_shape.items()):
+            print(f"  {label}: {perf.candidate_us:.2f} us (noise {perf.noise_pct:.1f}%)")
 
         print("smoke_ssh: OK")
     finally:

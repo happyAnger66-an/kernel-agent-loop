@@ -55,7 +55,7 @@ def evald_run(
         ops_root = Path(config.ops_root) if config.ops_root is not None else work / "ops"
         spec = load_opspec(ops_root, op)
         shapes = list(spec.public_shapes()) + list(config.hidden_shapes)
-        result, _symptoms = measure(
+        result, _ = measure(
             repo=work,
             op=op,
             backend_name=backend_name,

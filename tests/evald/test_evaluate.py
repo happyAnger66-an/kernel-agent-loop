@@ -150,3 +150,42 @@ def test_throttled_environment_is_invalid_and_lever_stays_available(op_repo, rep
     _, log, outcome = _run(op_repo, repo_root, "CANDIDATE_OK\n", lever="naive", probe=probe)
     assert outcome.decision.verdict is Verdict.INVALID
     assert not log.tried("rms-1", lever="naive", parent=log.attempts("rms-1")[0].parent)
+
+
+class BenchBackend(FakeBackend):
+    """调用一次带 20ms 宿主开销，bench() 报告 5us 设备时间。"""
+
+    def load(self, artifact: Artifact):
+        run = super().load(artifact)
+
+        class Kernel:
+            def __call__(self, inputs, outputs, shape) -> None:
+                time.sleep(0.02)
+                run(inputs, outputs, shape)
+
+            def bench(self, inputs, outputs, shape) -> float:
+                return 5.0
+
+        return Kernel()
+
+
+# 用例: runner 提供 bench() 时计时取设备时间，不把宿主侧开销算进去
+# 参数: op_repo 是临时 git 仓库；repo_root 用来加载仓库里的 rmsnorm 契约
+def test_timing_uses_bench_when_runner_provides_it(op_repo, repo_root):
+    spec, campaign, log = _campaign(op_repo, repo_root)
+    _write(op_repo, "CANDIDATE_OK\n")
+    sha = campaign.commit_candidate(lever="naive", hypothesis="unit")
+    outcome = evaluate(
+        campaign,
+        spec=spec,
+        log=log,
+        lever="naive",
+        hypothesis="unit",
+        commit=sha,
+        backend=BenchBackend(spec),
+        env_probe=lambda: STEADY,
+        shapes=spec.public_shapes()[:1],
+        rounds=2,
+        reps=1,
+    )
+    assert [perf.candidate_us for perf in outcome.result.per_shape.values()] == [5.0]

@@ -20,6 +20,7 @@ def eval_result_to_dict(result: EvalResult) -> dict:
             }
             for label, perf in result.per_shape.items()
         },
+        "symptoms": list(result.symptoms),
     }
 
 
@@ -38,6 +39,7 @@ def eval_result_from_dict(data: dict) -> EvalResult:
             )
             for label, perf in data.get("per_shape", {}).items()
         },
+        symptoms=tuple(str(s) for s in data.get("symptoms", ())),
     )
 
 

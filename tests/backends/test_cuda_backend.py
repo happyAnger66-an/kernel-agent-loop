@@ -59,6 +59,24 @@ def test_loaded_kernel_runs_with_the_correctness_signature(impl_dir):
     np.testing.assert_allclose(outputs["out"], inputs["a"] + inputs["b"], rtol=1e-6)
 
 
+# 用例: bench 返回单次 launch 的设备时间，微秒级且随数据量增长
+# 参数: impl_dir 是含 kernel.cu 和 launch.py 的向量加法实现目录
+def test_bench_reports_device_time_that_scales_with_size(impl_dir):
+    backend = CudaBackend()
+    kernel = backend.load(backend.build(impl_dir))
+    try:
+        times = {}
+        for n in (1 << 12, 1 << 24):
+            shape = Shape(f"n{n}", {"n": n})
+            inputs = {"a": np.ones(n, dtype=np.float32), "b": np.ones(n, dtype=np.float32)}
+            outputs = {"out": np.zeros(n, dtype=np.float32)}
+            times[n] = kernel.bench(inputs, outputs, shape)
+    finally:
+        kernel.close()
+    assert 0 < times[1 << 12] < 100
+    assert times[1 << 24] > 10 * times[1 << 12]
+
+
 # 用例: 源码编译失败时抛 BuildError，异常信息带上 nvcc 的报错
 # 参数: impl_dir 是含 kernel.cu 和 launch.py 的向量加法实现目录
 def test_compile_error_raises_build_error_with_nvcc_output(impl_dir):

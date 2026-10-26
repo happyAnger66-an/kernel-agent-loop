@@ -118,6 +118,7 @@ def test_evald_run_rejects_wrong_candidate(op_repo, repo_root, tmp_path):
     )
     assert result.compile_ok is True
     assert result.correct is False
+    assert any("mismatch" in symptom for symptom in result.symptoms)
 
 
 # 用例: 隐藏 shape 会并入评测集合

@@ -123,7 +123,8 @@ def measure(
         artifact = backend.build(source_dir)
     except BuildError as exc:
         return (
-            _result(commit, env_before, env_probe(), compile_ok=False, correct=False, per_shape={}),
+            _result(commit, env_before, env_probe(), compile_ok=False, correct=False, per_shape={},
+                    symptoms=(str(exc),)),
             (str(exc),),
         )
 
@@ -138,7 +139,8 @@ def measure(
         report = check_correctness(spec, candidate, shapes, seed=seed)
         if not report.ok:
             return (
-                _result(commit, env_before, env_probe(), compile_ok=True, correct=False, per_shape={}),
+                _result(commit, env_before, env_probe(), compile_ok=True, correct=False, per_shape={},
+                        symptoms=tuple(report.failures)),
                 report.failures,
             )
         per_shape = {
@@ -163,6 +165,7 @@ def _result(
     compile_ok: bool,
     correct: bool,
     per_shape: dict[str, ShapePerf],
+    symptoms: tuple[str, ...] = (),
 ) -> EvalResult:
     return EvalResult(
         commit=commit,
@@ -171,6 +174,7 @@ def _result(
         env_before=env_before,
         env_after=env_after,
         per_shape=per_shape,
+        symptoms=symptoms,
     )
 
 
@@ -249,6 +253,10 @@ def _time_shape(spec, run, incumbent_run, shape: Shape, *, rounds: int, reps: in
     }
 
     def timed(fn):
+        bench = getattr(fn, "bench", None)
+        if callable(bench):
+            return lambda: bench(inputs, outputs, shape)
+
         def once():
             started = time.perf_counter()
             fn(inputs, outputs, shape)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 from kernel_agent_loop.core.types import Shape
@@ -89,8 +90,19 @@ def _handle_run(run, request: dict) -> dict:
     shape = Shape(label=request["shape"]["label"], dims=request["shape"]["dims"])
     inputs = {name: decode_array(payload) for name, payload in request["inputs"].items()}
     outputs = {name: decode_array(payload) for name, payload in request["outputs"].items()}
+    if request.get("cmd") == "bench":
+        return {"ok": True, "us": _bench(run, inputs, outputs, shape)}
     run(inputs, outputs, shape)
     return {"ok": True, "outputs": {name: encode_array(value) for name, value in outputs.items()}}
+
+
+def _bench(run, inputs: dict, outputs: dict, shape: Shape) -> float:
+    bench = getattr(run, "bench", None)
+    if callable(bench):
+        return float(bench(inputs, outputs, shape))
+    started = time.perf_counter()
+    run(inputs, outputs, shape)
+    return (time.perf_counter() - started) * 1e6
 
 
 if __name__ == "__main__":

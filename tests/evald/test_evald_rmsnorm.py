@@ -67,3 +67,4 @@ def test_evald_run_isolate_correct_rmsnorm(op_repo, repo_root, tmp_path):
     result = evald_run(bundle, config, env_probe=lambda: STEADY)
     assert result.compile_ok and result.correct
     assert load_opspec(repo_root / "ops", "rmsnorm").public_shapes()[0].label in result.per_shape
+    assert all(0 < perf.candidate_us < 1000 for perf in result.per_shape.values())
