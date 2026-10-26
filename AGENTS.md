@@ -117,6 +117,8 @@ Thor 上每个 shape 还会带 `floor_us`：一个只把全部输入读一遍、
 
 正确的候选在 Thor 上还会带回 `result.profile`：每个公开 shape 一份 ncu 指标（寄存器数、grid、occupancy、L1 每请求扇区数、L2 读写扇区、各类 warp stall）。改之前先看它判断瓶颈，例如 `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum / ..._requests_...` 远小于 16 说明全局读没向量化，`grid_size` 远小于 SM 数说明 GPU 大半空闲。ncu 下的 `gpu__time_duration` 含 replay 开销，不要拿它比快慢。
 
+`result.symptoms` 里以 `[code]` 开头的行是从这些指标归纳出的症状，每行带各 shape 的证据、候选手段（`Try:`）和判定依据（`Basis:`）。选下一轮手段时先看它：挑 headroom 大的 shape 上的症状下手，`near-floor` 的 shape 不要再动。`Try:` 只是起点，不保证有效；在 `hypothesis` 里写明你针对的是哪条症状，便于之后按“症状 → 手段 → 结果”统计。
+
 只优化某一个 shape 时，让 campaign 的 shape 集合只包含它。不要为了「测得更全」加进交付范围外的 shape。
 
 ## 实验日志

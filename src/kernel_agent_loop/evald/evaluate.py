@@ -12,7 +12,9 @@ from kernel_agent_loop.core.experiment_log import Attempt, ExperimentLog
 from kernel_agent_loop.core.gate import AcceptanceGate, Decision
 from kernel_agent_loop.core.types import EnvSnapshot, EvalResult, Shape, ShapePerf
 from kernel_agent_loop.evald.correctness import check_correctness
+from kernel_agent_loop.evald.diagnose import diagnose_shape, summarize
 from kernel_agent_loop.evald.env_guard import EnvGuard, read_gpu_env
+from kernel_agent_loop.evald.floor import shape_bytes
 from kernel_agent_loop.evald.result_codec import per_shape_to_dict
 from kernel_agent_loop.evald.runner import SubprocessKernelRunner, materialize_artifact_dir
 from kernel_agent_loop.evald.timing import interleaved_bench, paired_bench
@@ -157,6 +159,7 @@ def measure(
                 perf = replace(perf, floor_us=floor_probe(spec, shape))
             per_shape[shape.label] = perf
         profile, notes = _profile(profiler, artifact, candidate, spec, profile_shapes or [], seed=seed)
+        notes += _diagnose(spec, profile_shapes or [], profile, per_shape)
         return (
             _result(commit, env_before, env_probe(), compile_ok=True, correct=True, per_shape=per_shape,
                     symptoms=notes, profile=profile),
@@ -200,6 +203,19 @@ def _profile(profiler, artifact, candidate, spec, shapes: list[Shape], *, seed: 
         return profiler(artifact.cubin_path, spec, items, seed=seed), ()
     except Exception as exc:
         return {}, (f"profile unavailable: {exc}",)
+
+
+def _diagnose(spec, shapes: list[Shape], profile: dict[str, dict[str, float]],
+              per_shape: dict[str, ShapePerf]) -> tuple[str, ...]:
+    findings = []
+    for shape in shapes:
+        if shape.label not in profile:
+            continue
+        read, written = shape_bytes(spec, shape)
+        perf = per_shape.get(shape.label)
+        findings += diagnose_shape(shape.label, profile[shape.label], headroom=perf.headroom() if perf else None,
+                                   read_bytes=read, written_bytes=written)
+    return summarize(findings)
 
 
 def _bind_runs(artifact, incumbent_artifact, backend, *, isolate: bool, run_timeout: float,

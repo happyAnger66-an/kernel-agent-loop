@@ -395,6 +395,12 @@ evald 用 campaign 创建时锁定的可信源码树，把 `impl/` **整体替�
 - 每个 shape 得到一个 `ShapePerf`：`candidate_us` / `incumbent_us` 是逐轮中位数的中位数；`speedup_lo` / `speedup_hi` 是配对比值（incumbent / candidate）中位数的 95% bootstrap 置信区间；`noise_pct` 是区间半宽占中位比值的百分比。Thor 配置默认 10 轮 × 3 次，每个 shape 30 对。
 - Thor 上 `evald_run` 还为每个 shape 测一个硬件下限 `floor_us`（`FloorProbe`）：touch kernel 每线程一个 16 B 向量，把 spec 输入的全部字节读一遍、输出字节写一遍，计时方式与候选相同（冲 L2、CUDA Event、随机缓冲位置）。取 30 次采样的第 10 百分位而不是中位数：touch kernel 随缓冲位置抖 ±15%，进程间中位数差 5–10%，低分位跨进程只差约 ±5%。它含 launch 开销（Thor 空 kernel 约 4 µs，256 MiB 拷贝约 197 GB/s），是“同一条带宽路径能到哪”的实测值，不是理论证明的最小值；`candidate_us / floor_us` 就是 headroom。
 - 配置了 `profile_image` 时，计时之后再对正确候选做一次 ncu 采样（`ContainerProfiler`），只覆盖公开 shape，私有 shape 不采，免得指标里的字节数和 grid 暴露它们的尺寸。Thor 上 ncu 要 `CAP_SYS_ADMIN`（`RmProfilingAdminOnly: 1`），非 root 用户即使 `--privileged` 也拿不到，所以 ncu 以 root 跑在容器里：`--cap-drop ALL --cap-add SYS_ADMIN`、`--network none`、`--read-only`、`no-new-privileges`、`/tmp` 用 tmpfs，作业目录和 `kernel_agent_loop` 包只读挂载。作业目录里只有 cubin、`request.json`（launch 配置已经在隔离子进程里由候选的 `launch.py` 求值，经 `checked_launch_config` 规整成 JSON）和输入数组；容器里只执行可信的 `profile_target`。指标在 raw 页面按发射顺序对应 shape，非数值和 NaN 丢掉。ncu 会 replay kernel，`gpu__time_duration` 明显高于正常计时，只用于诊断。采样失败不影响判定，原因写进 `symptoms`（`profile unavailable: ...`）。一次评测（5 个公开 shape）的 profile 约 3 s。
+- 有 profile 时由 `evald.diagnose` 归纳症状，每条规则都是“实测 vs 理想”，阈值尽量对齐 ncu 自带规则脚本（`sections/*.py`）：
+  - `narrow-global-access`：每请求扇区数 < 8（连续访问时约等于每线程字节数，理想 16）；`uncoalesced-global-access`：> 16（连续访问不可能超过）。这两条是确定的浪费，不看 headroom。
+  - 以下只在 headroom > 1.15（或没测下限）时报，因为贴着下限的访存型 kernel 本来就该等访存：`l2-refetch`（L2 读/写扇区 × 32 B 超过 spec 理想字节 1.25 倍；按 SM 广播的操作数会让小 grid 天然偏高）、`underfilled-gpu`（grid < SM 数）、`tail-wave`（1–8 波且最后一波 ≤ 50%）、`occupancy-limited`（理论 occupancy < 50%，给出限制因素）、`barrier-stall`（barrier 占 stall 周期 > 20%）、`memory-latency-bound`（long_scoreboard > 50% 且 L2 吞吐 < 40%）。
+  - `near-floor`：headroom < 1.08，提示别再在这个 shape 上花轮次。
+  - 同一症状跨 shape 合成一行：`[code] shape: 证据; ... Try: 手段 | ... Basis: 依据`，写进 `EvalResult.symptoms`，`run_round` 把它记进实验日志。手段是起点建议，哪条真有效要看日志里的实测结果。
+  - 规则在 Thor 上用标注样本验证（`tests/evald/test_diagnose.py`）：标量 baseline 必须报 `narrow-global-access`，向量化版不报，分块跨步版（`rmsnorm_strided.cu`）必须报 `uncoalesced-global-access`，单行 shape 必须报 `underfilled-gpu`。
 - 第一个候选没有 incumbent，只要正确且环境合格就接受，作为起点。
 - Gate 的判定顺序：编译失败或不正确判 `reject`；环境不合格判 `invalid`（需要重测）；任一 shape 的 `candidate_us` 低于 `min_floor_ratio`（默认 0.8）× `floor_us` 判 `reject` 并注明需人工复核；之后三条同时满足才判 `accept`，否则判 `revert`。每个 shape 只按自己的区间判，一个 shape 抖不会抬高其他 shape 的门槛：
   - 没有 shape 显著变慢（区间上界 < 1）；

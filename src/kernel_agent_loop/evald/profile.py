@@ -25,11 +25,7 @@ import numpy as np
 
 import kernel_agent_loop
 from kernel_agent_loop.core.types import Shape
-
-_STALLS = (
-    "long_scoreboard", "short_scoreboard", "barrier", "membar", "mio_throttle", "lg_throttle",
-    "wait", "math_pipe_throttle", "not_selected", "no_instruction", "branch_resolving", "dispatch_stall",
-)
+from kernel_agent_loop.evald.diagnose import STALLS
 
 METRICS = (
     "gpu__time_duration.sum",
@@ -50,7 +46,7 @@ METRICS = (
     "gpc__cycles_elapsed.max",
     "smsp__inst_executed.sum",
     "smsp__average_warp_latency_per_inst_issued.ratio",
-    *(f"smsp__average_warp_latency_issue_stalled_{name}.ratio" for name in _STALLS),
+    *(f"smsp__average_warp_latency_issue_stalled_{name}.ratio" for name in STALLS),
     "launch__registers_per_thread",
     "launch__grid_size",
     "launch__block_size",
@@ -60,6 +56,7 @@ METRICS = (
     "launch__occupancy_limit_shared_mem",
     "launch__occupancy_limit_warps",
     "launch__occupancy_limit_blocks",
+    "device__attribute_multiprocessor_count",
 )
 
 CONTAINER_PKG = "/kal"
