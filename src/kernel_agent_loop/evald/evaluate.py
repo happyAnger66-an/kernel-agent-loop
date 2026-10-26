@@ -1,7 +1,7 @@
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +42,7 @@ def evaluate(
     isolate: bool = False,
     run_timeout: float = 120.0,
     worker_args: list[str] | None = None,
+    floor_probe=None,
 ) -> Evaluation:
     """Compile the working-tree impl, check it, time it against campaign.best, and log the verdict.
 
@@ -66,6 +67,7 @@ def evaluate(
         isolate=isolate,
         run_timeout=run_timeout,
         worker_args=worker_args,
+        floor_probe=floor_probe,
     )
     decision = gate.decide(result)
     log.record(
@@ -101,10 +103,12 @@ def measure(
     run_timeout: float = 120.0,
     worker_args: list[str] | None = None,
     incumbent_dir: Path | None = None,
+    floor_probe=None,
 ) -> tuple[EvalResult, tuple[str, ...]]:
     """Compile, check correctness, interleaved bench, env snapshots. No gate and no experiment log.
 
     The incumbent comes from `incumbent_dir` when given, otherwise from `git show <best>` in repo.
+    `floor_probe(spec, shape) -> us`, when given, fills ShapePerf.floor_us.
     """
     if backend is None:
         if backend_name != "cuda":
@@ -142,10 +146,12 @@ def measure(
                         symptoms=tuple(report.failures)),
                 report.failures,
             )
-        per_shape = {
-            shape.label: _time_shape(spec, candidate, incumbent, shape, rounds=rounds, reps=reps, seed=seed)
-            for shape in shapes
-        }
+        per_shape = {}
+        for shape in shapes:
+            perf = _time_shape(spec, candidate, incumbent, shape, rounds=rounds, reps=reps, seed=seed)
+            if floor_probe is not None:
+                perf = replace(perf, floor_us=floor_probe(spec, shape))
+            per_shape[shape.label] = perf
         return (
             _result(commit, env_before, env_probe(), compile_ok=True, correct=True, per_shape=per_shape),
             (),

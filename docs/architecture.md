@@ -393,8 +393,9 @@ evald 用 campaign 创建时锁定的可信源码树，把 `impl/` **整体替�
 - 计时测的是 kernel 设备时间：`CudaKernel` 把 cubin 加载进进程级 primary context 一次；每次 launch 前用 `cuMemsetD8Async` 写一块 `max(2×L2, 8 MiB)` 的缓冲冲掉 L2，用 CUDA Event 只包住 launch，取单次 launch 的中位数。`isolate=True` 时计时在子进程里执行，只回传耗时，JSONL 往返不计入；数组每个 shape 只传一次（`stage`）。没有 `bench()` 的 runner（单测里的假后端）才退回墙钟。
 - 候选和 incumbent **在同一进程、同一份缓冲上配对测**（`bench_kernels` / `bench_pair`）：每次采样把缓冲放到 8 MiB 内随机的 256 B 对齐偏移上，两边逐次交替 launch（顺序每次轮换）。原因是 Thor 上 kernel 耗时随缓冲物理布局和所在进程呈多峰，同一代码在两个进程里可差 15–30%，而进程内又很稳定；分进程测会把这个差当成“加速”。实测 A/A（同一代码当候选和 incumbent）配对后各 shape 区间都在 ±1% 内。
 - 每个 shape 得到一个 `ShapePerf`：`candidate_us` / `incumbent_us` 是逐轮中位数的中位数；`speedup_lo` / `speedup_hi` 是配对比值（incumbent / candidate）中位数的 95% bootstrap 置信区间；`noise_pct` 是区间半宽占中位比值的百分比。Thor 配置默认 10 轮 × 3 次，每个 shape 30 对。
+- Thor 上 `evald_run` 还为每个 shape 测一个硬件下限 `floor_us`（`FloorProbe`）：touch kernel 每线程一个 16 B 向量，把 spec 输入的全部字节读一遍、输出字节写一遍，计时方式与候选相同（冲 L2、CUDA Event、随机缓冲位置）。取 30 次采样的第 10 百分位而不是中位数：touch kernel 随缓冲位置抖 ±15%，进程间中位数差 5–10%，低分位跨进程只差约 ±5%。它含 launch 开销（Thor 空 kernel 约 4 µs，256 MiB 拷贝约 197 GB/s），是“同一条带宽路径能到哪”的实测值，不是理论证明的最小值；`candidate_us / floor_us` 就是 headroom。
 - 第一个候选没有 incumbent，只要正确且环境合格就接受，作为起点。
-- Gate 的判定顺序：编译失败或不正确判 `reject`；环境不合格判 `invalid`（需要重测）；之后三条同时满足才判 `accept`，否则判 `revert`。每个 shape 只按自己的区间判，一个 shape 抖不会抬高其他 shape 的门槛：
+- Gate 的判定顺序：编译失败或不正确判 `reject`；环境不合格判 `invalid`（需要重测）；任一 shape 的 `candidate_us` 低于 `min_floor_ratio`（默认 0.8）× `floor_us` 判 `reject` 并注明需人工复核；之后三条同时满足才判 `accept`，否则判 `revert`。每个 shape 只按自己的区间判，一个 shape 抖不会抬高其他 shape 的门槛：
   - 没有 shape 显著变慢（区间上界 < 1）；
   - 至少一个 shape 显著变快（区间下界 > `1 + min_gain_pct`）；
   - 各 shape 加速比的几何平均 > `1 + min_gain_pct`。

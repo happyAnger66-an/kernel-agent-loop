@@ -16,6 +16,7 @@ from kernel_agent_loop.evald.bundle import INCUMBENT_DIR, BundleError, overlay_b
 from kernel_agent_loop.evald.config import EvaldConfig
 from kernel_agent_loop.evald.env_guard import read_gpu_env
 from kernel_agent_loop.evald.evaluate import measure
+from kernel_agent_loop.evald.floor import FloorProbe
 from kernel_agent_loop.evald.flockutil import exclusive_lock
 from kernel_agent_loop.evald.result_codec import eval_result_to_dict
 from kernel_agent_loop.evald.thor_env import prepare_thor_session
@@ -55,23 +56,30 @@ def evald_run(
         ops_root = Path(config.ops_root) if config.ops_root is not None else work / "ops"
         spec = load_opspec(ops_root, op)
         shapes = list(spec.public_shapes()) + list(config.hidden_shapes)
-        result, _ = measure(
-            repo=work,
-            op=op,
-            backend_name=backend_name,
-            commit=meta["commit"],
-            best=meta.get("parent", meta["commit"]),
-            spec=spec,
-            shapes=shapes,
-            backend=backend,
-            env_probe=env_probe,
-            rounds=config.rounds,
-            reps=config.reps,
-            isolate=config.isolate,
-            run_timeout=config.run_timeout,
-            worker_args=worker_args,
-            incumbent_dir=work / INCUMBENT_DIR,
-        )
+        real_gpu = backend is None and worker_args is None and backend_name == "cuda"
+        floor_probe = FloorProbe() if real_gpu else None
+        try:
+            result, _ = measure(
+                repo=work,
+                op=op,
+                backend_name=backend_name,
+                commit=meta["commit"],
+                best=meta.get("parent", meta["commit"]),
+                spec=spec,
+                shapes=shapes,
+                backend=backend,
+                env_probe=env_probe,
+                rounds=config.rounds,
+                reps=config.reps,
+                isolate=config.isolate,
+                run_timeout=config.run_timeout,
+                worker_args=worker_args,
+                incumbent_dir=work / INCUMBENT_DIR,
+                floor_probe=floor_probe,
+            )
+        finally:
+            if floor_probe is not None:
+                floor_probe.close()
         return result
 
 

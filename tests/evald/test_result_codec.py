@@ -16,7 +16,8 @@ def test_eval_result_roundtrip():
         correct=True,
         env_before=env,
         env_after=env,
-        per_shape={"r1": ShapePerf(candidate_us=10.0, incumbent_us=12.0, noise_pct=1.5, speedup_lo=1.1, speedup_hi=1.3)},
+        per_shape={"r1": ShapePerf(candidate_us=10.0, incumbent_us=12.0, noise_pct=1.5, speedup_lo=1.1, speedup_hi=1.3,
+                                    floor_us=8.0)},
     )
     restored = eval_result_from_dict(eval_result_to_dict(original))
     assert restored == original

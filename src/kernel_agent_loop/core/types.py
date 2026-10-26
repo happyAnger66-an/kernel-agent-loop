@@ -24,6 +24,13 @@ class ShapePerf:
     noise_pct: float
     speedup_lo: float | None = None
     speedup_hi: float | None = None
+    floor_us: float | None = None
+
+    def headroom(self) -> float | None:
+        """candidate_us / floor_us: how far the candidate sits above the measured touch-kernel floor."""
+        if self.floor_us is None or self.floor_us <= 0:
+            return None
+        return self.candidate_us / self.floor_us
 
     def speedup_interval(self) -> tuple[float, float]:
         """Confidence interval of incumbent/candidate; derived from noise_pct when not measured."""

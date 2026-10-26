@@ -136,6 +136,22 @@ def test_tiny_geomean_is_reverted_even_with_one_significant_gain(gate):
     assert any("geometric-mean" in r for r in d.reasons)
 
 
+# 用例: 某个 shape 比实测硬件下限的 0.8 倍还快，判拒绝待人工复核，即使没有 incumbent
+# 参数: gate 是 AcceptanceGate，温漂上限 5°C、最小收益 1%、下限比 0.8
+def test_candidate_far_below_hardware_floor_is_rejected(gate):
+    cheat = ShapePerf(candidate_us=5.0, incumbent_us=None, noise_pct=1.0, floor_us=10.0)
+    d = gate.decide(result({"s": cheat}))
+    assert d.verdict is Verdict.REJECT
+    assert any("hardware floor" in r for r in d.reasons)
+
+
+# 用例: 略低于下限（0.9 倍）在容差内，不触发拒绝，正常比较
+# 参数: gate 是 AcceptanceGate，温漂上限 5°C、最小收益 1%、下限比 0.8
+def test_candidate_slightly_below_floor_is_judged_normally(gate):
+    near = replace(measured(1.2, 1.15, 1.25), floor_us=100.0 / 1.2 / 0.9)
+    assert gate.decide(result({"s": near})).verdict is Verdict.ACCEPT
+
+
 # 用例: 区间整体低于 1 的 shape 判为退化，即使另一个 shape 大幅变快
 # 参数: gate 是 AcceptanceGate，温漂上限 5°C、最小收益 1%
 def test_interval_below_one_is_a_regression(gate):

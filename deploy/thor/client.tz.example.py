@@ -34,6 +34,11 @@ def main() -> None:
         hypothesis="thor smoke",
     )
     print(outcome.decision)
+    if outcome.result is not None:
+        for label, perf in outcome.result.per_shape.items():
+            headroom = perf.headroom()
+            print(f"{label}: {perf.candidate_us:.2f} us"
+                  + (f", floor {perf.floor_us:.2f} us, headroom {headroom:.2f}x" if headroom else ""))
 
 
 if __name__ == "__main__":

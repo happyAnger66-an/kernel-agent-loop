@@ -109,9 +109,11 @@ Thor 配置示例在 `deploy/thor/`。`evald_run` 持 `flock`、overlay 候选�
 
 正确性用 `check_correctness(spec, run, shapes, seed=...)`。`run(inputs, outputs, shape)` 就地写入 `outputs`。调用前输出缓冲区是 NaN；改写 `inputs` 会判失败。每个 shape 至少两轮，种子不同。
 
-公开 shape 来自 `ops/rmsnorm/spec.py` 的 `public_shapes()`：`r1-h4096`、`r8-h4096`、`r32-h1024`。隐藏 shape 不在仓库里，评测时由调用方追加。不要在 kernel 里写死这些 label。
+公开 shape 来自 `ops/rmsnorm/spec.py` 的 `public_shapes()`：`r1-h4096`、`r8-h4096`、`r32-h1024`、`r512-h4096`、`r4096-h4096`。隐藏 shape 不在仓库里，评测时由调用方追加。不要在 kernel 里写死这些 label。
 
 性能比较对象是当前最优版本，不是 PyTorch eager。候选和当前最优在同一进程、同一份缓冲上配对计时，每个 shape 得到加速比的 95% 置信区间。接受要同时满足：没有 shape 显著变慢（区间上界 < 1）；至少一个 shape 显著变快（区间下界 > 1.01）；几何平均 > 1.01。只改善部分 shape、其余不退化的改动可以被接受。
+
+Thor 上每个 shape 还会带 `floor_us`：一个只把全部输入读一遍、全部输出写一遍的 touch kernel 实测耗时（含 launch 开销）。`perf.headroom()` = `candidate_us / floor_us`，接近 1 说明这个 shape 已经贴着带宽和 launch 下限，再在它上面花轮次多半没收益；先挑 headroom 大的 shape。某个 shape 跑到下限的 0.8 倍以下会被判 `reject` 交人工复核（通常是少读了数据或复用了上次的输出）。
 
 只优化某一个 shape 时，让 campaign 的 shape 集合只包含它。不要为了「测得更全」加进交付范围外的 shape。
 

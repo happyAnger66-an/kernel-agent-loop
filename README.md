@@ -18,6 +18,7 @@
 | 候选的提交、接受、回退 | `Campaign`。每个 campaign 一条分支 `kal/<id>`，最优提交记在 `.git/kal/<id>.json` |
 | 正确性 | `check_correctness`：每轮新种子、输出先填 NaN、核对输入没被改写 |
 | 计时统计 | `paired_bench`：候选和当前最优在同一进程、同一份缓冲上交替 launch（CUDA Event 设备时间，每次 launch 前冲 L2，缓冲位置每次采样随机），给出配对加速比的 95% 置信区间 |
+| 硬件下限 | `FloorProbe`（`evald.floor`）：按 shape 的读写字节数跑 touch kernel，取 30 个随机缓冲位置的第 10 百分位，写入 `ShapePerf.floor_us`；`python -m kernel_agent_loop.evald.floor --config ...` 打印校准表 |
 | 接受门禁 | `AcceptanceGate`（开发机） |
 | 静态检查 | `StaticJudge`：只允许改实现目录，拦截进程、网络和文件逃逸 |
 | 实验日志 | `ExperimentLog`：记录每次尝试，按 campaign 和父版本去重手段 |
@@ -150,7 +151,7 @@ decision = AcceptanceGate(env_guard=EnvGuard(max_temp_drift_c=5.0), min_gain_pct
 
 `EvaldConfig.prepare_env=true` 时会尽量执行 `nvpmodel` 与 `jetson_clocks`（工具不存在则跳过）。隐藏 shape 只放在 Thor 配置里，不进仓库。默认 `isolate=true`：编译在父进程，kernel `run` 在子进程，stdout 只传 JSONL。
 
-门禁顺序是：编译失败或不正确则拒绝；降频、功耗模式变化、频率变化或温漂超过 5°C 则这次结果作废；没有当前最优版本的第一个正确候选直接接受。之后三条同时满足才接受，否则回退（每个 shape 只按自己的置信区间判）：
+门禁顺序是：编译失败或不正确则拒绝；降频、功耗模式变化、频率变化或温漂超过 5°C 则这次结果作废；任一 shape 低于硬件下限的 0.8 倍则拒绝、交人工复核；没有当前最优版本的第一个正确候选直接接受。之后三条同时满足才接受，否则回退（每个 shape 只按自己的置信区间判）：
 
 - 没有 shape 显著变慢（加速比区间上界 < 1）
 - 至少一个 shape 显著变快（区间下界 > `1 + 1%`）

@@ -25,6 +25,7 @@ def per_shape_to_dict(per_shape: dict[str, ShapePerf]) -> dict:
             "noise_pct": perf.noise_pct,
             "speedup_lo": perf.speedup_lo,
             "speedup_hi": perf.speedup_hi,
+            "floor_us": perf.floor_us,
         }
         for label, perf in per_shape.items()
     }
@@ -44,6 +45,7 @@ def eval_result_from_dict(data: dict) -> EvalResult:
                 noise_pct=float(perf["noise_pct"]),
                 speedup_lo=_optional_float(perf.get("speedup_lo")),
                 speedup_hi=_optional_float(perf.get("speedup_hi")),
+                floor_us=_optional_float(perf.get("floor_us")),
             )
             for label, perf in data.get("per_shape", {}).items()
         },

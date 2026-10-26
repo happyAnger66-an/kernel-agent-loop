@@ -12,9 +12,10 @@ class Decision:
 
 
 class AcceptanceGate:
-    def __init__(self, env_guard: EnvGuard, min_gain_pct: float) -> None:
+    def __init__(self, env_guard: EnvGuard, min_gain_pct: float, min_floor_ratio: float = 0.8) -> None:
         self.env_guard = env_guard
         self.min_gain_pct = min_gain_pct
+        self.min_floor_ratio = min_floor_ratio
 
     def decide(self, result: EvalResult) -> Decision:
         if not result.compile_ok:
@@ -24,6 +25,14 @@ class AcceptanceGate:
         env_reasons = self.env_guard.check(result.env_before, result.env_after)
         if env_reasons:
             return Decision(Verdict.INVALID, tuple(env_reasons))
+        below = [
+            f"{label} at {perf.headroom():.2f}x of hardware floor ({perf.candidate_us:.2f} vs "
+            f"{perf.floor_us:.2f} us), below {self.min_floor_ratio:.2f}x: needs manual review"
+            for label, perf in result.per_shape.items()
+            if perf.headroom() is not None and perf.headroom() < self.min_floor_ratio
+        ]
+        if below:
+            return Decision(Verdict.REJECT, tuple(below))
         if all(perf.incumbent_us is None for perf in result.per_shape.values()):
             return Decision(Verdict.ACCEPT)
         return self._compare(result.per_shape)
