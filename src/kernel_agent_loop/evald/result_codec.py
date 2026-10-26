@@ -12,15 +12,21 @@ def eval_result_to_dict(result: EvalResult) -> dict:
         "correct": result.correct,
         "env_before": _env_to_dict(result.env_before),
         "env_after": _env_to_dict(result.env_after),
-        "per_shape": {
-            label: {
-                "candidate_us": perf.candidate_us,
-                "incumbent_us": perf.incumbent_us,
-                "noise_pct": perf.noise_pct,
-            }
-            for label, perf in result.per_shape.items()
-        },
+        "per_shape": per_shape_to_dict(result.per_shape),
         "symptoms": list(result.symptoms),
+    }
+
+
+def per_shape_to_dict(per_shape: dict[str, ShapePerf]) -> dict:
+    return {
+        label: {
+            "candidate_us": perf.candidate_us,
+            "incumbent_us": perf.incumbent_us,
+            "noise_pct": perf.noise_pct,
+            "speedup_lo": perf.speedup_lo,
+            "speedup_hi": perf.speedup_hi,
+        }
+        for label, perf in per_shape.items()
     }
 
 
@@ -34,8 +40,10 @@ def eval_result_from_dict(data: dict) -> EvalResult:
         per_shape={
             label: ShapePerf(
                 candidate_us=float(perf["candidate_us"]),
-                incumbent_us=None if perf["incumbent_us"] is None else float(perf["incumbent_us"]),
+                incumbent_us=_optional_float(perf["incumbent_us"]),
                 noise_pct=float(perf["noise_pct"]),
+                speedup_lo=_optional_float(perf.get("speedup_lo")),
+                speedup_hi=_optional_float(perf.get("speedup_hi")),
             )
             for label, perf in data.get("per_shape", {}).items()
         },
@@ -59,3 +67,7 @@ def _env_from_dict(data: dict) -> EnvSnapshot:
         temp_c=float(data["temp_c"]),
         throttled=bool(data["throttled"]),
     )
+
+
+def _optional_float(value) -> float | None:
+    return None if value is None else float(value)

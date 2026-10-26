@@ -301,6 +301,8 @@ Feedback Builder 只给 Agent 少量高信号信息：排在前几位的症状�
 
 L2 条目沿用 `tirx-codegen-tuning` 的格式（一个条目一个文件，Symptoms 是唯一索引），另加一行 `**Backends:**`。SASS 层面的经验通常跨后端通用，标为 `any`。
 
+格子结果这一段已经接上，搜索循环还没有。`contracts/ticket.schema.json` 和 `contracts/cell-result.schema.json` 是 AiInfraKB `schema/` 的副本，正本在知识库。`check_contracts` 在设置了 `AIINFRAKB_ROOT` 时按字节比对。`induce_cell_result` 不读 sqlite、不跑评测：日志提供提交、父提交、手段、假设和判定，调用方另给 `AttemptNote`（`kind`、`expected_gain_ms`、`stage_reached`，以及可选的 `e2e_ms`）。四种结论对不上契约就拒绝输出。`propose_cell_result` 用 `kb propose --type lesson` 写入 `inbox/`，claim 带端到端毫秒，`map` 钉在工单的节点和模块上。草稿留在 inbox，不自动接受。
+
 Planner 检索顺序：先查 L1 去重，再查 L2 找改法，最后查 L3 了解硬件特性。检索到的条目如果最终带来被接受的改动，就回写一次成功；没起作用也要回写，用来发现过期条目。
 
 ### 5.6 适配多种 Agent 框架
@@ -313,6 +315,7 @@ Planner 检索顺序：先查 L1 去重，再查 L2 找改法，最后查 L3 了
 
 ```text
 kernel-agent-loop/
+  contracts/                  # ticket 与 cell-result schema 副本
   docs/architecture.md
   skills/                     # optimize-loop / diagnose / distill-knowledge
   ops/<op>/spec.py            # OpSpec
@@ -387,13 +390,14 @@ evald 用 campaign 创建时锁定的可信源码树，把 `impl/` **整体替�
 
 ### 9.5 计时与判定
 
-- 计时测的是 kernel 设备时间：`CudaKernel` 把 cubin 加载进进程级 primary context 一次；`bench()` 上传一次输入，每次 launch 前用 `cuMemsetD8Async` 写一块 `max(2×L2, 8 MiB)` 的缓冲来冲掉 L2，用 CUDA Event 只包住 launch，取单次 launch 的中位数。Thor 上 kernel 耗时随缓冲区物理布局呈多峰（同一代码不同进程可差 15–30%），而同一进程内 `cuMemAlloc` 反复返回相同地址，所以每次 `bench()` 把缓冲区放在 1 MiB 内随机的 256 B 对齐偏移上，让多峰体现在噪声里而不是固化成某一侧的“加速”。`isolate=True` 时 `bench` 在子进程里执行，只回传耗时，JSONL 往返不计入。没有 `bench()` 的 runner（单测里的假后端）才退回墙钟。
-- 候选和**当前最优版本（incumbent）**在同一会话里交替运行，抵消温度和频率漂移。
-- 每个 shape 得到一个 `ShapePerf`：候选和 incumbent 各自的逐轮中位数再取中位数；`noise_pct` 取候选和 incumbent 两侧“逐轮中位数极差 / 中位数”的较大者。
+- 计时测的是 kernel 设备时间：`CudaKernel` 把 cubin 加载进进程级 primary context 一次；每次 launch 前用 `cuMemsetD8Async` 写一块 `max(2×L2, 8 MiB)` 的缓冲冲掉 L2，用 CUDA Event 只包住 launch，取单次 launch 的中位数。`isolate=True` 时计时在子进程里执行，只回传耗时，JSONL 往返不计入；数组每个 shape 只传一次（`stage`）。没有 `bench()` 的 runner（单测里的假后端）才退回墙钟。
+- 候选和 incumbent **在同一进程、同一份缓冲上配对测**（`bench_kernels` / `bench_pair`）：每次采样把缓冲放到 8 MiB 内随机的 256 B 对齐偏移上，两边逐次交替 launch（顺序每次轮换）。原因是 Thor 上 kernel 耗时随缓冲物理布局和所在进程呈多峰，同一代码在两个进程里可差 15–30%，而进程内又很稳定；分进程测会把这个差当成“加速”。实测 A/A（同一代码当候选和 incumbent）配对后各 shape 区间都在 ±1% 内。
+- 每个 shape 得到一个 `ShapePerf`：`candidate_us` / `incumbent_us` 是逐轮中位数的中位数；`speedup_lo` / `speedup_hi` 是配对比值（incumbent / candidate）中位数的 95% bootstrap 置信区间；`noise_pct` 是区间半宽占中位比值的百分比。Thor 配置默认 10 轮 × 3 次，每个 shape 30 对。
 - 第一个候选没有 incumbent，只要正确且环境合格就接受，作为起点。
-- Gate 的判定顺序：编译失败或不正确判 `reject`；环境不合格判 `invalid`（需要重测）；之后只有同时满足下面两条才判 `accept`，否则判 `revert`：
-  - 各 shape 加速比的几何平均，超过 `1 + max(各 shape 的 noise_pct, min_gain_pct)`；
-  - 没有任何 shape 比 incumbent 慢超过它自己的噪声。
+- Gate 的判定顺序：编译失败或不正确判 `reject`；环境不合格判 `invalid`（需要重测）；之后三条同时满足才判 `accept`，否则判 `revert`。每个 shape 只按自己的区间判，一个 shape 抖不会抬高其他 shape 的门槛：
+  - 没有 shape 显著变慢（区间上界 < 1）；
+  - 至少一个 shape 显著变快（区间下界 > `1 + min_gain_pct`）；
+  - 各 shape 加速比的几何平均 > `1 + min_gain_pct`。
 
 ### 9.6 CUDA 实现目录约定
 

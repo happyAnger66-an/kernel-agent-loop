@@ -23,11 +23,16 @@ class SubprocessKernelRunner:
         self,
         artifact_dir: Path,
         *,
+        incumbent_dir: Path | None = None,
         timeout: float = 120.0,
         worker_args: list[str] | None = None,
     ) -> None:
         self.timeout = timeout
+        self._staged: tuple[dict, dict, Shape] | None = None
+        self._hello: dict | None = None
         cmd = [sys.executable, "-m", "kernel_agent_loop.evald.runner_worker", str(artifact_dir)]
+        if incumbent_dir is not None:
+            cmd.extend(["--incumbent", str(incumbent_dir)])
         if worker_args:
             cmd.extend(worker_args)
         env = os.environ.copy()
@@ -52,19 +57,52 @@ class SubprocessKernelRunner:
         for name, payload in response["outputs"].items():
             outputs[name][...] = decode_array(payload)
 
+    @property
+    def has_incumbent(self) -> bool:
+        """Whether the child loaded an incumbent; one that fails to load counts as absent."""
+        return bool(self._ready().get("incumbent"))
+
     def bench(self, inputs: dict, outputs: dict, shape: Shape) -> float:
         """Per-launch microseconds as timed inside the child, excluding this IPC round trip."""
-        return float(self._request("bench", inputs, outputs, shape)["us"])
+        self._stage(inputs, outputs, shape)
+        return float(self._request("bench", None, None, shape)["us"])
 
-    def _request(self, cmd: str, inputs: dict, outputs: dict, shape: Shape) -> dict:
+    def bench_pair(self, inputs: dict, outputs: dict, shape: Shape) -> tuple[float, float]:
+        """(candidate_us, incumbent_us) timed together in the child on the same buffers."""
+        self._stage(inputs, outputs, shape)
+        response = self._request("bench_pair", None, None, shape)
+        return float(response["candidate_us"]), float(response["incumbent_us"])
+
+    def _stage(self, inputs: dict, outputs: dict, shape: Shape) -> None:
+        """Ship arrays once per (inputs, outputs, shape); later bench calls reuse them."""
+        staged = self._staged
+        if staged is None or staged[0] is not inputs or staged[1] is not outputs or staged[2] != shape:
+            self._request("stage", inputs, outputs, shape)
+            self._staged = (inputs, outputs, shape)
+
+    def _ready(self) -> dict:
+        if self._hello is None:
+            assert self._proc.stdout is not None
+            line = self._proc.stdout.readline()
+            try:
+                self._hello = json.loads(line) if line else {"ok": False, "error": "runner closed stdout"}
+            except json.JSONDecodeError:
+                self._hello = {"ok": False, "error": f"invalid runner hello: {line!r}"}
+            if not self._hello.get("ok"):
+                self._hello["error"] = f"{self._hello.get('error', 'runner failed')}; stderr={self._stderr()}"
+        return self._hello
+
+    def _request(self, cmd: str, inputs: dict | None, outputs: dict | None, shape: Shape) -> dict:
+        hello = self._ready()
+        if not hello.get("ok"):
+            raise RunnerError(hello["error"])
         if self._proc.poll() is not None:
             raise RunnerError(f"runner exited early: {self._stderr()}")
-        request = {
-            "cmd": cmd,
-            "shape": {"label": shape.label, "dims": shape.dims},
-            "inputs": {name: encode_array(value) for name, value in inputs.items()},
-            "outputs": {name: encode_array(value) for name, value in outputs.items()},
-        }
+        request = {"cmd": cmd, "shape": {"label": shape.label, "dims": shape.dims}}
+        if inputs is not None:
+            request["inputs"] = {name: encode_array(value) for name, value in inputs.items()}
+        if outputs is not None:
+            request["outputs"] = {name: encode_array(value) for name, value in outputs.items()}
         assert self._proc.stdin is not None and self._proc.stdout is not None
         self._proc.stdin.write(json.dumps(request, allow_nan=False) + "\n")
         self._proc.stdin.flush()

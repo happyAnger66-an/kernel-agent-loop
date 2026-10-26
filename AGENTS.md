@@ -111,7 +111,7 @@ Thor 配置示例在 `deploy/thor/`。`evald_run` 持 `flock`、overlay 候选�
 
 公开 shape 来自 `ops/rmsnorm/spec.py` 的 `public_shapes()`：`r1-h4096`、`r8-h4096`、`r32-h1024`。隐藏 shape 不在仓库里，评测时由调用方追加。不要在 kernel 里写死这些 label。
 
-性能比较对象是当前最优版本，不是 PyTorch eager。加速比用同一轮交替计时的中位数。几何平均要超过 `1 + max(噪声, 1%)`，并且没有任何一个声明范围内的 shape 慢过它自己的噪声。
+性能比较对象是当前最优版本，不是 PyTorch eager。候选和当前最优在同一进程、同一份缓冲上配对计时，每个 shape 得到加速比的 95% 置信区间。接受要同时满足：没有 shape 显著变慢（区间上界 < 1）；至少一个 shape 显著变快（区间下界 > 1.01）；几何平均 > 1.01。只改善部分 shape、其余不退化的改动可以被接受。
 
 只优化某一个 shape 时，让 campaign 的 shape 集合只包含它。不要为了「测得更全」加进交付范围外的 shape。
 
@@ -146,7 +146,7 @@ python3 -m pytest -m thor --override-ini="addopts="
 
 ## 还没实现
 
-不要假设下面这些已经存在：`kal` 命令、MCP、常驻 evald 守护进程、Triton / CuTe DSL / TIRx 后端、ncu 症状映射、L2 调优库、AiInfraKB。按次调用的 `evald_run` / `EvalClient`（含 SSH 同步）已经可用。
+不要假设下面这些已经存在：`kal` 命令、MCP、常驻 evald 守护进程、Triton / CuTe DSL / TIRx 后端、ncu 症状映射、L2 调优库、按工单自动搜索的循环。按次调用的 `evald_run` / `EvalClient`（含 SSH 同步）已经可用。格子结果可以经 `induce_cell_result` 归纳，再用 `propose_cell_result` 写成 AiInfraKB 的 inbox 草稿；`contracts/` 要和知识库的 schema 保持字节一致。
 
 <!-- agent-kit:begin -->
 

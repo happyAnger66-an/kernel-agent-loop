@@ -10,6 +10,7 @@ from kernel_agent_loop.core.experiment_log import ExperimentLog
 from kernel_agent_loop.core.opspec import load_opspec
 from kernel_agent_loop.core.types import EnvSnapshot, Verdict
 from kernel_agent_loop.evald.evaluate import evaluate
+from conftest import small_ops_root
 
 
 IMPL = "ops/rmsnorm/impls/cuda"
@@ -30,7 +31,7 @@ class FakeBackend:
 # 用例: isolate + fake worker 接受第一个正确候选
 # 参数: op_repo 临时仓库；repo_root 加载契约
 def test_evaluate_isolate_accepts_first_correct_candidate(op_repo, repo_root):
-    spec = load_opspec(repo_root / "ops", "rmsnorm")
+    spec = load_opspec(small_ops_root(repo_root), "rmsnorm")
     campaign = Campaign.create(op_repo, campaign_id="rms-iso", op="rmsnorm", backend="cuda", hardware="thor")
     (op_repo / ".kal").mkdir(exist_ok=True)
     log = ExperimentLog(op_repo / ".kal" / "experiments.sqlite")

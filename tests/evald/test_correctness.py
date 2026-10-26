@@ -7,13 +7,14 @@ import pytest
 
 from kernel_agent_loop.core.opspec import Shape, load_opspec
 from kernel_agent_loop.evald.correctness import check_correctness
+from conftest import small_ops_root
 
 HIDDEN = [Shape("hidden-r3-h1000", {"rows": 3, "hidden": 1000})]
 
 
 @pytest.fixture
 def spec(repo_root):
-    return load_opspec(repo_root / "ops", "rmsnorm")
+    return load_opspec(small_ops_root(repo_root), "rmsnorm")
 
 
 def rmsnorm(spec, inputs):

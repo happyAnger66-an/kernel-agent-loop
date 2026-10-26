@@ -22,6 +22,17 @@ class ShapePerf:
     candidate_us: float
     incumbent_us: float | None
     noise_pct: float
+    speedup_lo: float | None = None
+    speedup_hi: float | None = None
+
+    def speedup_interval(self) -> tuple[float, float]:
+        """Confidence interval of incumbent/candidate; derived from noise_pct when not measured."""
+        if self.speedup_lo is not None and self.speedup_hi is not None:
+            return self.speedup_lo, self.speedup_hi
+        assert self.incumbent_us is not None
+        speedup = self.incumbent_us / self.candidate_us
+        widen = 1 + self.noise_pct / 100
+        return speedup / widen, speedup * widen
 
 
 @dataclass(frozen=True)

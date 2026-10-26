@@ -29,20 +29,28 @@ class AcceptanceGate:
         return self._compare(result.per_shape)
 
     def _compare(self, per_shape: dict[str, ShapePerf]) -> Decision:
+        """Each shape is judged against its own interval, so one noisy shape cannot block the rest.
+
+        Accept only if no shape is significantly slower, at least one is significantly faster by
+        more than min_gain_pct, and the geometric-mean speedup exceeds 1 + min_gain_pct.
+        """
         reasons = []
         speedups = []
-        noises = [self.min_gain_pct]
+        min_gain = 1 + self.min_gain_pct / 100
+        significant_gain = False
         for label, perf in per_shape.items():
             assert perf.incumbent_us is not None
             speedups.append(perf.incumbent_us / perf.candidate_us)
-            noises.append(perf.noise_pct)
-            limit = perf.incumbent_us * (1 + perf.noise_pct / 100)
-            if perf.candidate_us > limit:
-                reasons.append(f"{label} slower than incumbent beyond noise")
+            lo, hi = perf.speedup_interval()
+            if hi < 1:
+                reasons.append(f"{label} slower than incumbent beyond noise (speedup interval {lo:.3f}-{hi:.3f})")
+            if lo > min_gain:
+                significant_gain = True
         geomean = math.exp(sum(math.log(s) for s in speedups) / len(speedups))
-        threshold = 1 + max(noises) / 100
-        if geomean <= threshold:
-            reasons.append(f"geometric-mean speedup {geomean:.4f} within {threshold:.4f}")
+        if not significant_gain:
+            reasons.append(f"no shape faster than {min_gain:.3f} beyond noise")
+        if geomean <= min_gain:
+            reasons.append(f"geometric-mean speedup {geomean:.4f} within {min_gain:.4f}")
         if reasons:
             return Decision(Verdict.REVERT, tuple(reasons))
         return Decision(Verdict.ACCEPT)

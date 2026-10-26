@@ -32,3 +32,25 @@ def op_repo(tmp_path: Path) -> Path:
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "base")
     return repo
+
+
+_SMALL_OPS: list[Path] = []
+
+
+def small_ops_root(repo_root: Path) -> Path:
+    """Ops root whose rmsnorm spec keeps only the small public shapes, for fake-backend unit tests."""
+    if not _SMALL_OPS:
+        import tempfile
+
+        root = Path(tempfile.mkdtemp(prefix="kal-small-ops-"))
+        (root / "rmsnorm").mkdir()
+        text = (repo_root / "ops" / "rmsnorm" / "spec.py").read_text()
+        text += (
+            "\n\nclass _SmallShapes(RmsNormSpec):\n"
+            "    def public_shapes(self):\n"
+            "        return [s for s in super().public_shapes() if s.dims['rows'] * s.dims['hidden'] <= 32768]\n"
+            "\n\nSPEC = _SmallShapes()\n"
+        )
+        (root / "rmsnorm" / "spec.py").write_text(text)
+        _SMALL_OPS.append(root)
+    return _SMALL_OPS[0]

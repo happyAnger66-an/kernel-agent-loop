@@ -39,19 +39,21 @@ def test_steady_timings_give_exact_medians_and_zero_noise():
     assert perf.noise_pct == 0
 
 
-# 用例: 噪声是 incumbent 各轮中位数的极差除以中位数
+# 用例: 配对比值有抖动时，加速比区间包住真实比值且有宽度，noise_pct 是区间半宽
 # 参数: 无
-def test_noise_is_the_spread_of_incumbent_round_medians():
-    perf = interleaved_bench(constant(80), from_sequence([100, 102, 98, 100, 100]), rounds=5, reps=1)
-    assert perf.incumbent_us == 100
-    assert perf.noise_pct == pytest.approx(4.0)
+def test_jittery_pairs_give_an_interval_around_the_true_ratio():
+    perf = interleaved_bench(
+        constant(80), from_sequence([100, 108, 92, 100, 104, 96, 100, 100, 112, 88]), rounds=10, reps=1
+    )
+    assert perf.speedup_lo < 1.25 < perf.speedup_hi
+    assert perf.noise_pct == pytest.approx((perf.speedup_hi - perf.speedup_lo) / 2 / 1.25 * 100)
 
 
-# 用例: 候选一侧更抖时，噪声取两侧中较大的那个
+# 用例: 耗时恒定时区间退化成一个点
 # 参数: 无
-def test_noise_takes_the_noisier_side():
-    perf = interleaved_bench(from_sequence([80, 92, 80, 80, 80]), constant(100), rounds=5, reps=1)
-    assert perf.noise_pct == pytest.approx(15.0)
+def test_steady_pairs_give_a_point_interval():
+    perf = interleaved_bench(constant(80), constant(100), rounds=5, reps=3)
+    assert perf.speedup_lo == perf.speedup_hi == pytest.approx(1.25)
 
 
 # 用例: 两边耗时同步线性变慢时，交替计时得出的加速比误差在 1% 以内
@@ -76,3 +78,19 @@ def test_without_incumbent_noise_comes_from_candidate():
     assert perf.incumbent_us is None
     assert perf.candidate_us == 100
     assert perf.noise_pct == pytest.approx(8.0)
+
+
+# 用例: 配对采样时两侧共享同一份布局抖动，比值抵消它，区间收窄到真实比值
+# 参数: 无
+def test_paired_samples_cancel_shared_jitter():
+    from kernel_agent_loop.evald.timing import paired_bench
+
+    factors = iter([1.0, 1.3, 0.8, 1.2, 1.0, 0.9, 1.25, 1.1, 0.85, 1.0] * 3)
+
+    def pair():
+        f = next(factors)
+        return 80 * f, 100 * f
+
+    perf = paired_bench(pair, rounds=10, reps=3)
+    assert perf.speedup_lo == pytest.approx(1.25)
+    assert perf.speedup_hi == pytest.approx(1.25)

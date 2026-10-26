@@ -6,7 +6,7 @@
   "hidden_shapes_path": "/home/nvidia/kal/hidden_shapes.json",
   "isolate": true,
   "prepare_env": true,
-  "rounds": 5,
+  "rounds": 10,
   "reps": 3,
   "run_timeout": 180
 }

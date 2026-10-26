@@ -13,8 +13,9 @@ from kernel_agent_loop.core.gate import AcceptanceGate, Decision
 from kernel_agent_loop.core.types import EnvSnapshot, EvalResult, Shape, ShapePerf
 from kernel_agent_loop.evald.correctness import check_correctness
 from kernel_agent_loop.evald.env_guard import EnvGuard, read_gpu_env
+from kernel_agent_loop.evald.result_codec import per_shape_to_dict
 from kernel_agent_loop.evald.runner import SubprocessKernelRunner, materialize_artifact_dir
-from kernel_agent_loop.evald.timing import interleaved_bench
+from kernel_agent_loop.evald.timing import interleaved_bench, paired_bench
 
 
 @dataclass(frozen=True)
@@ -76,14 +77,7 @@ def evaluate(
             hypothesis=hypothesis,
             verdict=decision.verdict.value,
             symptoms=symptoms,
-            per_shape={
-                label: {
-                    "candidate_us": perf.candidate_us,
-                    "incumbent_us": perf.incumbent_us,
-                    "noise_pct": perf.noise_pct,
-                }
-                for label, perf in result.per_shape.items()
-            },
+            per_shape=per_shape_to_dict(result.per_shape),
         )
     )
     return Evaluation(result, decision)
@@ -132,15 +126,15 @@ def measure(
             (str(exc),),
         )
 
-    candidate = _bind_run(artifact, backend, isolate=isolate, run_timeout=run_timeout, worker_args=worker_args)
-    incumbent = None
+    incumbent_artifact = None
+    if commit != best:
+        if incumbent_dir is None:
+            incumbent_dir = _materialize_impl(repo, best, f"ops/{op}/impls/{backend_name}")
+        incumbent_artifact = _build_incumbent(incumbent_dir, backend)
+    candidate, incumbent = _bind_runs(
+        artifact, incumbent_artifact, backend, isolate=isolate, run_timeout=run_timeout, worker_args=worker_args
+    )
     try:
-        if commit != best:
-            if incumbent_dir is None:
-                incumbent_dir = _materialize_impl(repo, best, f"ops/{op}/impls/{backend_name}")
-            incumbent = _load_incumbent(
-                incumbent_dir, backend, isolate=isolate, run_timeout=run_timeout, worker_args=worker_args
-            )
         report = check_correctness(spec, candidate, shapes, seed=seed)
         if not report.ok:
             return (
@@ -183,12 +177,28 @@ def _result(
     )
 
 
-def _bind_run(artifact, backend, *, isolate: bool, run_timeout: float, worker_args: list[str] | None):
-    if not isolate:
-        return backend.load(artifact)
-    dest = Path(tempfile.mkdtemp(prefix="kal-runner-"))
-    materialize_artifact_dir(artifact, dest)
-    return SubprocessKernelRunner(dest, timeout=run_timeout, worker_args=worker_args)
+def _bind_runs(artifact, incumbent_artifact, backend, *, isolate: bool, run_timeout: float,
+               worker_args: list[str] | None):
+    """(candidate, incumbent). Under isolation one child holds both, so incumbent is folded into it."""
+    if isolate:
+        incumbent_dest = None
+        if incumbent_artifact is not None:
+            incumbent_dest = materialize_artifact_dir(
+                incumbent_artifact, Path(tempfile.mkdtemp(prefix="kal-incumbent-run-"))
+            )
+        dest = materialize_artifact_dir(artifact, Path(tempfile.mkdtemp(prefix="kal-runner-")))
+        runner = SubprocessKernelRunner(
+            dest, incumbent_dir=incumbent_dest, timeout=run_timeout, worker_args=worker_args
+        )
+        return runner, None
+    candidate = backend.load(artifact)
+    incumbent = None
+    if incumbent_artifact is not None:
+        try:
+            incumbent = backend.load(incumbent_artifact)
+        except Exception:
+            incumbent = None
+    return candidate, incumbent
 
 
 def _close_run(run) -> None:
@@ -197,22 +207,12 @@ def _close_run(run) -> None:
         close()
 
 
-def _load_incumbent(
-    directory: Path | None,
-    backend,
-    *,
-    isolate: bool,
-    run_timeout: float,
-    worker_args: list[str] | None,
-):
+def _build_incumbent(directory: Path | None, backend):
+    """Built incumbent artifact, or None when there is none or it does not build (e.g. a placeholder)."""
     if directory is None or not Path(directory).is_dir():
         return None
     try:
-        artifact = backend.build(directory)
-        # Placeholder best may build a cubin but lack a real launch_config; treat as no incumbent.
-        return _bind_run(
-            artifact, backend, isolate=isolate, run_timeout=run_timeout, worker_args=worker_args
-        )
+        return backend.build(directory)
     except Exception:
         return None
 
@@ -264,5 +264,10 @@ def _time_shape(spec, run, incumbent_run, shape: Shape, *, rounds: int, reps: in
             return (time.perf_counter() - started) * 1e6
         return once
 
+    if isinstance(run, SubprocessKernelRunner) and run.has_incumbent:
+        return paired_bench(lambda: run.bench_pair(inputs, outputs, shape), rounds=rounds, reps=reps)
+    pair = getattr(run, "bench_pair_with", None)
+    if incumbent_run is not None and callable(pair):
+        return paired_bench(lambda: pair(incumbent_run, inputs, outputs, shape), rounds=rounds, reps=reps)
     incumbent = timed(incumbent_run) if incumbent_run is not None else None
     return interleaved_bench(timed(run), incumbent, rounds=rounds, reps=reps)

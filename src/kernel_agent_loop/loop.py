@@ -11,6 +11,7 @@ from kernel_agent_loop.core.gate import AcceptanceGate, Decision
 from kernel_agent_loop.core.static_judge import StaticJudge
 from kernel_agent_loop.core.types import EvalResult, Verdict
 from kernel_agent_loop.evald.bundle import make_bundle
+from kernel_agent_loop.evald.result_codec import per_shape_to_dict
 
 
 class AlreadyTried(Exception):
@@ -81,16 +82,7 @@ def _changed_files(campaign: Campaign) -> dict[str, str]:
 
 
 def _record(log, campaign, sha, parent, lever, hypothesis, decision, symptoms, result) -> None:
-    per_shape = {}
-    if result is not None:
-        per_shape = {
-            label: {
-                "candidate_us": perf.candidate_us,
-                "incumbent_us": perf.incumbent_us,
-                "noise_pct": perf.noise_pct,
-            }
-            for label, perf in result.per_shape.items()
-        }
+    per_shape = per_shape_to_dict(result.per_shape) if result is not None else {}
     log.record(
         Attempt(
             campaign=campaign.campaign_id,

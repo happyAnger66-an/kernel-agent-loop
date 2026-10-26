@@ -13,6 +13,7 @@ from kernel_agent_loop.evald.bundle import make_bundle
 from kernel_agent_loop.evald.config import EvaldConfig
 from kernel_agent_loop.evald.env_guard import EnvGuard
 from kernel_agent_loop.evald.serve import evald_run
+from conftest import small_ops_root
 
 
 STEADY = EnvSnapshot(power_mode="MAXN", gpu_clock_mhz=1575, temp_c=50.0, throttled=False)
@@ -58,7 +59,7 @@ def _config(trusted: Path, tmp_path: Path, repo_root: Path, **kwargs) -> EvaldCo
         trusted=trusted,
         work_root=tmp_path / "jobs",
         lock_path=tmp_path / "gpu.lock",
-        ops_root=repo_root / "ops",
+        ops_root=small_ops_root(repo_root),
         isolate=False,
         prepare_env=False,
         rounds=3,
@@ -89,7 +90,7 @@ def test_evald_run_accepts_correct_candidate(op_repo, repo_root, tmp_path):
 
     trusted = _trusted(op_repo, repo_root, tmp_path)
     (op_repo / IMPL / "kernel.cu").write_text("CANDIDATE_OK\n")
-    spec = load_opspec(repo_root / "ops", "rmsnorm")
+    spec = load_opspec(small_ops_root(repo_root), "rmsnorm")
     result = evald_run(
         _bundle(op_repo, commit="c1", parent="c1"),
         _config(trusted, tmp_path, repo_root),
@@ -109,7 +110,7 @@ def test_evald_run_rejects_wrong_candidate(op_repo, repo_root, tmp_path):
 
     trusted = _trusted(op_repo, repo_root, tmp_path)
     (op_repo / IMPL / "kernel.cu").write_text("CANDIDATE_WRONG\n")
-    spec = load_opspec(repo_root / "ops", "rmsnorm")
+    spec = load_opspec(small_ops_root(repo_root), "rmsnorm")
     result = evald_run(
         _bundle(op_repo),
         _config(trusted, tmp_path, repo_root),
@@ -129,7 +130,7 @@ def test_evald_run_includes_hidden_shapes(op_repo, repo_root, tmp_path):
 
     trusted = _trusted(op_repo, repo_root, tmp_path)
     (op_repo / IMPL / "kernel.cu").write_text("CANDIDATE_OK\n")
-    spec = load_opspec(repo_root / "ops", "rmsnorm")
+    spec = load_opspec(small_ops_root(repo_root), "rmsnorm")
     hidden = (Shape("hidden-r2-h16", {"rows": 2, "hidden": 16}),)
     result = evald_run(
         _bundle(op_repo, commit="c1", parent="c1"),
@@ -147,7 +148,7 @@ def test_evald_run_compares_against_bundled_incumbent(op_repo, repo_root, tmp_pa
 
     trusted = _trusted(op_repo, repo_root, tmp_path)
     (op_repo / IMPL / "kernel.cu").write_text("CANDIDATE_SLOW\n")
-    spec = load_opspec(repo_root / "ops", "rmsnorm")
+    spec = load_opspec(small_ops_root(repo_root), "rmsnorm")
     meta = {"campaign": "rms-1", "commit": "c1", "parent": "c0", "op": "rmsnorm", "backend": "cuda",
             "lever": "slow", "hypothesis": "unit"}
     bundle = make_bundle(op_repo, "rmsnorm", "cuda", meta, incumbent={"kernel.cu": b"CANDIDATE_OK\n"})

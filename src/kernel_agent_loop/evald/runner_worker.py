@@ -15,10 +15,11 @@ from kernel_agent_loop.evald.array_codec import decode_array, encode_array
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
-        print("usage: runner_worker ARTIFACT_DIR [--fake]", file=sys.stderr)
+        print("usage: runner_worker ARTIFACT_DIR [--incumbent DIR] [--fake]", file=sys.stderr)
         return 2
     artifact_dir = Path(argv[0])
     fake = "--fake" in argv[1:]
+    incumbent_dir = Path(argv[argv.index("--incumbent") + 1]) if "--incumbent" in argv[1:] else None
 
     # stdout is reserved for JSONL; divert fd 1 library noise to stderr (ExecBench pattern).
     real_stdout = os.fdopen(os.dup(1), "w", encoding="utf-8", closefd=True)
@@ -30,7 +31,16 @@ def main(argv: list[str] | None = None) -> int:
         real_stdout.write(json.dumps({"ok": False, "error": f"load failed: {exc}"}, allow_nan=False) + "\n")
         real_stdout.flush()
         return 1
+    incumbent = None
+    if incumbent_dir is not None:
+        try:
+            incumbent = _load_run(incumbent_dir, fake=fake)
+        except Exception as exc:
+            print(f"incumbent not loaded: {exc}", file=sys.stderr)
+    real_stdout.write(json.dumps({"ok": True, "incumbent": incumbent is not None}) + "\n")
+    real_stdout.flush()
 
+    staged: dict = {}
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -39,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
         if request.get("cmd") == "quit":
             return 0
         try:
-            response = _handle_run(run, request)
+            response = _handle_run(run, incumbent, request, staged)
         except Exception as exc:
             response = {"ok": False, "error": str(exc)}
         real_stdout.write(json.dumps(response, allow_nan=False) + "\n")
@@ -86,14 +96,33 @@ def _load_fake(artifact_dir: Path):
     return run
 
 
-def _handle_run(run, request: dict) -> dict:
+def _handle_run(run, incumbent, request: dict, staged: dict) -> dict:
+    """`stage` keeps arrays for later bench calls; `bench`/`bench_pair` use them; `run` brings its own."""
     shape = Shape(label=request["shape"]["label"], dims=request["shape"]["dims"])
+    cmd = request.get("cmd")
+    if cmd in ("bench", "bench_pair"):
+        if staged.get("shape") != shape:
+            raise RuntimeError(f"{cmd} before stage for {shape.label}")
+        if cmd == "bench":
+            return {"ok": True, "us": _bench(run, staged["inputs"], staged["outputs"], shape)}
+        if incumbent is None:
+            raise RuntimeError("bench_pair without an incumbent")
+        cand_us, inc_us = _bench_pair(run, incumbent, staged["inputs"], staged["outputs"], shape)
+        return {"ok": True, "candidate_us": cand_us, "incumbent_us": inc_us}
     inputs = {name: decode_array(payload) for name, payload in request["inputs"].items()}
     outputs = {name: decode_array(payload) for name, payload in request["outputs"].items()}
-    if request.get("cmd") == "bench":
-        return {"ok": True, "us": _bench(run, inputs, outputs, shape)}
+    if cmd == "stage":
+        staged.update(shape=shape, inputs=inputs, outputs=outputs)
+        return {"ok": True}
     run(inputs, outputs, shape)
     return {"ok": True, "outputs": {name: encode_array(value) for name, value in outputs.items()}}
+
+
+def _bench_pair(run, incumbent, inputs: dict, outputs: dict, shape: Shape) -> tuple[float, float]:
+    pair = getattr(run, "bench_pair_with", None)
+    if callable(pair):
+        return pair(incumbent, inputs, outputs, shape)
+    return _bench(run, inputs, outputs, shape), _bench(incumbent, inputs, outputs, shape)
 
 
 def _bench(run, inputs: dict, outputs: dict, shape: Shape) -> float:

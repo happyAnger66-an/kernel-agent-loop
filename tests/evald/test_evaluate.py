@@ -6,7 +6,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from conftest import git
+from conftest import git, small_ops_root
 
 from kernel_agent_loop.backends.cuda import Artifact, BuildError
 from kernel_agent_loop.core.campaign import Campaign
@@ -49,7 +49,7 @@ class FakeBackend:
 
 
 def _campaign(op_repo, repo_root):
-    spec = load_opspec(repo_root / "ops", "rmsnorm")
+    spec = load_opspec(small_ops_root(repo_root), "rmsnorm")
     campaign = Campaign.create(op_repo, campaign_id="rms-1", op="rmsnorm", backend="cuda", hardware="thor")
     (op_repo / ".kal").mkdir(exist_ok=True)
     log = ExperimentLog(op_repo / ".kal" / "experiments.sqlite")

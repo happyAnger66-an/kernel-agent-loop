@@ -11,6 +11,8 @@ class RmsNormSpec:
             Shape("r1-h4096", {"rows": 1, "hidden": 4096}),
             Shape("r8-h4096", {"rows": 8, "hidden": 4096}),
             Shape("r32-h1024", {"rows": 32, "hidden": 1024}),
+            Shape("r512-h4096", {"rows": 512, "hidden": 4096}),
+            Shape("r4096-h4096", {"rows": 4096, "hidden": 4096}),
         ]
 
     def make_inputs(self, shape: Shape, seed: int) -> dict[str, np.ndarray]:

@@ -17,7 +17,7 @@
 | 算子契约 | `ops/<op>/spec.py`，用 `load_opspec` 加载。现有算子是 RMSNorm |
 | 候选的提交、接受、回退 | `Campaign`。每个 campaign 一条分支 `kal/<id>`，最优提交记在 `.git/kal/<id>.json` |
 | 正确性 | `check_correctness`：每轮新种子、输出先填 NaN、核对输入没被改写 |
-| 计时统计 | `interleaved_bench`：候选和当前最优交替跑，噪声取两侧逐轮中位数极差的较大者；采样值是 `CudaKernel.bench()` 的 CUDA Event 设备时间（每次 launch 前冲 L2，缓冲区地址随机偏移） |
+| 计时统计 | `paired_bench`：候选和当前最优在同一进程、同一份缓冲上交替 launch（CUDA Event 设备时间，每次 launch 前冲 L2，缓冲位置每次采样随机），给出配对加速比的 95% 置信区间 |
 | 接受门禁 | `AcceptanceGate`（开发机） |
 | 静态检查 | `StaticJudge`：只允许改实现目录，拦截进程、网络和文件逃逸 |
 | 实验日志 | `ExperimentLog`：记录每次尝试，按 campaign 和父版本去重手段 |
@@ -150,15 +150,18 @@ decision = AcceptanceGate(env_guard=EnvGuard(max_temp_drift_c=5.0), min_gain_pct
 
 `EvaldConfig.prepare_env=true` 时会尽量执行 `nvpmodel` 与 `jetson_clocks`（工具不存在则跳过）。隐藏 shape 只放在 Thor 配置里，不进仓库。默认 `isolate=true`：编译在父进程，kernel `run` 在子进程，stdout 只传 JSONL。
 
-门禁顺序是：编译失败或不正确则拒绝；降频、功耗模式变化、频率变化或温漂超过 5°C 则这次结果作废；没有当前最优版本的第一个正确候选直接接受。之后要同时满足两条才接受，否则回退：
+门禁顺序是：编译失败或不正确则拒绝；降频、功耗模式变化、频率变化或温漂超过 5°C 则这次结果作废；没有当前最优版本的第一个正确候选直接接受。之后三条同时满足才接受，否则回退（每个 shape 只按自己的置信区间判）：
 
-- 各 shape 加速比的几何平均，超过 `1 + max(各 shape 噪声, 1%)`
-- 没有任何 shape 比当前最优慢超过它自己的噪声
+- 没有 shape 显著变慢（加速比区间上界 < 1）
+- 至少一个 shape 显著变快（区间下界 > `1 + 1%`）
+- 各 shape 加速比的几何平均 > `1 + 1%`
 
 shape 集合就是这次优化要守住的范围。只优化某一个 shape 时，集合里只放那个 shape。集合之外的 shape 变慢，不在这套门禁里。
 
 ## 知识库
 
-实验日志是现在唯一落地的一层：每次尝试的提交、父提交、手段、假设、判定和症状都会记下，包括失败。`tried(campaign, lever=..., parent=...)` 用来避免在同一个父版本上重复同一个手段。
+实验日志记下每次尝试的提交、父提交、手段、假设、判定和症状，包括失败。`tried(campaign, lever=..., parent=...)` 用来避免在同一个父版本上重复同一个手段。
 
-L2 调优库和 L3 AiInfraKB 还没接入。症状字段可以写入日志，但还没有从 ncu/SASS 自动生成症状的代码。
+格子结论可以交回 AiInfraKB，但还不会自己跑搜索。`induce_cell_result` 把工单、实验日志里的尝试，以及调用方补上的 `kind`、`expected_gain_ms`、`stage_reached`、`e2e_ms` 收成一份 `cell-result`。`e2e_ms` 只用来自调用方，不从 `per_shape` 的微秒数里推。`propose_cell_result` 调用 `kb propose --type lesson`，把草稿放进 `inbox/`，钉上工单里的节点和模块，不自动接受。`contracts/` 是工单和格子结果 schema 的副本；设置了 `AIINFRAKB_ROOT`，或回写时传入知识库根目录，会先按字节比对，不一致就停。
+
+L2 调优库还没接入。症状字段可以写入日志，但还没有从 ncu/SASS 自动生成症状的代码。
