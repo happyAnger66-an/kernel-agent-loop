@@ -19,6 +19,7 @@
 | 正确性 | `check_correctness`：每轮新种子、输出先填 NaN、核对输入没被改写 |
 | 计时统计 | `paired_bench`：候选和当前最优在同一进程、同一份缓冲上交替 launch（CUDA Event 设备时间，每次 launch 前冲 L2，缓冲位置每次采样随机），给出配对加速比的 95% 置信区间 |
 | 硬件下限 | `FloorProbe`（`evald.floor`）：按 shape 的读写字节数跑 touch kernel，取 30 个随机缓冲位置的第 10 百分位，写入 `ShapePerf.floor_us`；`python -m kernel_agent_loop.evald.floor --config ...` 打印校准表 |
+| ncu 指标 | `ContainerProfiler`（`evald.profile`）：Thor 配置了 `profile_image` 时，对正确候选的公开 shape 各发射一次，在容器里用 ncu 采约 40 个指标，放进 `EvalResult.profile`。容器只加 `SYS_ADMIN`、断网、只读根，候选的 `launch.py` 在隔离子进程里先求值成 JSON，容器里不跑 Agent 的 Python |
 | 接受门禁 | `AcceptanceGate`（开发机） |
 | 静态检查 | `StaticJudge`：只允许改实现目录，拦截进程、网络和文件逃逸 |
 | 实验日志 | `ExperimentLog`：记录每次尝试，按 campaign 和父版本去重手段 |
@@ -28,7 +29,7 @@
 | Thor 评测 | `evald_run` / `EvalClient`：`flock` → overlay 候选包 → `measure` → 回传 `EvalResult`；Gate 仍在开发机 |
 | 一轮优化 | `run_round`（`kernel_agent_loop.loop`）：去重、静态检查、提交、打包、送评、门禁、写日志、接受/回退 |
 
-还没有的部分：常驻 evald 守护进程、ncu/SASS 症状诊断、L2 调优库、AiInfraKB 接入、Triton 和 CuTe DSL 后端。
+还没有的部分：常驻 evald 守护进程、从 ncu 指标归纳症状（指标已采到，规则还没写）、SASS 诊断、L2 调优库、AiInfraKB 接入、Triton 和 CuTe DSL 后端。
 
 Thor 真机部署与 SSH 冒烟见 [`deploy/thor/README.md`](deploy/thor/README.md)（示例主机 `ssh nvidia@tz -p 2240`）。
 
@@ -165,4 +166,4 @@ shape 集合就是这次优化要守住的范围。只优化某一个 shape 时�
 
 格子结论可以交回 AiInfraKB，但还不会自己跑搜索。`induce_cell_result` 把工单、实验日志里的尝试，以及调用方补上的 `kind`、`expected_gain_ms`、`stage_reached`、`e2e_ms` 收成一份 `cell-result`。`e2e_ms` 只用来自调用方，不从 `per_shape` 的微秒数里推。`propose_cell_result` 调用 `kb propose --type lesson`，把草稿放进 `inbox/`，钉上工单里的节点和模块，不自动接受。`contracts/` 是工单和格子结果 schema 的副本；设置了 `AIINFRAKB_ROOT`，或回写时传入知识库根目录，会先按字节比对，不一致就停。
 
-L2 调优库还没接入。症状字段可以写入日志，但还没有从 ncu/SASS 自动生成症状的代码。
+L2 调优库还没接入。ncu 原始指标已经随 `EvalResult.profile` 回传，但还没有把它们归纳成症状写进日志的代码。

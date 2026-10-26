@@ -100,6 +100,8 @@ def _handle_run(run, incumbent, request: dict, staged: dict) -> dict:
     """`stage` keeps arrays for later bench calls; `bench`/`bench_pair` use them; `run` brings its own."""
     shape = Shape(label=request["shape"]["label"], dims=request["shape"]["dims"])
     cmd = request.get("cmd")
+    if cmd == "launch_config":
+        return {"ok": True, "config": run.launch_config(shape)}
     if cmd in ("bench", "bench_pair"):
         if staged.get("shape") != shape:
             raise RuntimeError(f"{cmd} before stage for {shape.label}")

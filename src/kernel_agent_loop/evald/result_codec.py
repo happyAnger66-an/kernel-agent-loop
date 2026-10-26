@@ -14,6 +14,7 @@ def eval_result_to_dict(result: EvalResult) -> dict:
         "env_after": _env_to_dict(result.env_after),
         "per_shape": per_shape_to_dict(result.per_shape),
         "symptoms": list(result.symptoms),
+        "profile": result.profile,
     }
 
 
@@ -50,6 +51,10 @@ def eval_result_from_dict(data: dict) -> EvalResult:
             for label, perf in data.get("per_shape", {}).items()
         },
         symptoms=tuple(str(s) for s in data.get("symptoms", ())),
+        profile={
+            label: {name: float(value) for name, value in metrics.items()}
+            for label, metrics in data.get("profile", {}).items()
+        },
     )
 
 

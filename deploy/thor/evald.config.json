@@ -8,5 +8,7 @@
   "prepare_env": true,
   "rounds": 10,
   "reps": 3,
-  "run_timeout": 180
+  "run_timeout": 180,
+  "profile_image": "adas-img.nioint.com/r-lab/blackwell-aarch64:latest",
+  "profile_timeout": 600
 }

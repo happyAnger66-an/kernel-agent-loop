@@ -69,6 +69,10 @@ class CudaKernel:
             _check(cuda.cuCtxSynchronize())
             buffers.copy_outputs_back()
 
+    def launch_config(self, shape) -> dict:
+        """Launch config for shape as plain JSON types; raises BuildError if it is malformed."""
+        return checked_launch_config(self._launch_config(shape))
+
     def bench(self, inputs: dict, outputs: dict, shape, *, iters: int = 20, warmup: int = 3) -> float:
         """Median per-launch device time in microseconds."""
         return bench_kernels([self], inputs, outputs, shape, iters=iters, warmup=warmup)[0]
@@ -263,6 +267,24 @@ def _gpu_arch() -> str:
         cuda.cuDeviceGetAttribute(cuda.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, device)
     )
     return f"sm_{major}{minor}"
+
+
+def checked_launch_config(config) -> dict:
+    try:
+        checked = {
+            "kernel": str(config["kernel"]),
+            "grid": [int(v) for v in config["grid"]],
+            "block": [int(v) for v in config["block"]],
+            "smem": int(config["smem"]),
+            "args": [str(v) for v in config["args"]],
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise BuildError(f"malformed launch config: {exc}") from exc
+    if len(checked["grid"]) != 3 or len(checked["block"]) != 3:
+        raise BuildError("launch config grid and block need 3 dims")
+    if not checked["kernel"].isidentifier():
+        raise BuildError(f"launch config kernel {checked['kernel']!r} is not an identifier")
+    return checked
 
 
 def _load_launch_config(path: Path):

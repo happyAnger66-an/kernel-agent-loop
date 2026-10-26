@@ -73,6 +73,10 @@ class SubprocessKernelRunner:
         response = self._request("bench_pair", None, None, shape)
         return float(response["candidate_us"]), float(response["incumbent_us"])
 
+    def launch_config(self, shape: Shape) -> dict:
+        """The candidate's launch.py evaluated in the child, so agent Python never runs in this process."""
+        return self._request("launch_config", None, None, shape)["config"]
+
     def _stage(self, inputs: dict, outputs: dict, shape: Shape) -> None:
         """Ship arrays once per (inputs, outputs, shape); later bench calls reuse them."""
         staged = self._staged

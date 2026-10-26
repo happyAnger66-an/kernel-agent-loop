@@ -18,6 +18,7 @@ from kernel_agent_loop.evald.env_guard import read_gpu_env
 from kernel_agent_loop.evald.evaluate import measure
 from kernel_agent_loop.evald.floor import FloorProbe
 from kernel_agent_loop.evald.flockutil import exclusive_lock
+from kernel_agent_loop.evald.profile import ContainerProfiler
 from kernel_agent_loop.evald.result_codec import eval_result_to_dict
 from kernel_agent_loop.evald.thor_env import prepare_thor_session
 
@@ -58,6 +59,9 @@ def evald_run(
         shapes = list(spec.public_shapes()) + list(config.hidden_shapes)
         real_gpu = backend is None and worker_args is None and backend_name == "cuda"
         floor_probe = FloorProbe() if real_gpu else None
+        profiler = None
+        if real_gpu and config.profile_image:
+            profiler = ContainerProfiler(image=config.profile_image, timeout=config.profile_timeout)
         try:
             result, _ = measure(
                 repo=work,
@@ -76,6 +80,8 @@ def evald_run(
                 worker_args=worker_args,
                 incumbent_dir=work / INCUMBENT_DIR,
                 floor_probe=floor_probe,
+                profiler=profiler,
+                profile_shapes=list(spec.public_shapes()),
             )
         finally:
             if floor_probe is not None:

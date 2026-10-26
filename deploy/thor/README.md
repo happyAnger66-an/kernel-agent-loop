@@ -64,3 +64,4 @@ ssh -p 2240 nvidia@tz 'export PATH=/usr/local/cuda/bin:$PATH
 
 - Jetson 上 `nvidia-smi` 的 pstate/clocks 常为 `[N/A]`；`read_gpu_env` 会改走 `nvpmodel` + `/sys/class/devfreq/gpu-gpc-0`。
 - `jetson_clocks` / `nvpmodel` 需要 `sudo -n`；bootstrap 会尝试锁频。
+- ncu 采样需要 `nvidia` 用户能跑 `docker`（nvidia runtime），并且本机已有 `profile_image` 指定的镜像（默认 `adas-img.nioint.com/r-lab/blackwell-aarch64:latest`，自带 ncu、Python 3.12、numpy、cuda-python）。不想采样时把配置里的 `profile_image` 删掉。

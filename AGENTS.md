@@ -115,6 +115,8 @@ Thor 配置示例在 `deploy/thor/`。`evald_run` 持 `flock`、overlay 候选�
 
 Thor 上每个 shape 还会带 `floor_us`：一个只把全部输入读一遍、全部输出写一遍的 touch kernel 实测耗时（含 launch 开销）。`perf.headroom()` = `candidate_us / floor_us`，接近 1 说明这个 shape 已经贴着带宽和 launch 下限，再在它上面花轮次多半没收益；先挑 headroom 大的 shape。某个 shape 跑到下限的 0.8 倍以下会被判 `reject` 交人工复核（通常是少读了数据或复用了上次的输出）。
 
+正确的候选在 Thor 上还会带回 `result.profile`：每个公开 shape 一份 ncu 指标（寄存器数、grid、occupancy、L1 每请求扇区数、L2 读写扇区、各类 warp stall）。改之前先看它判断瓶颈，例如 `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum / ..._requests_...` 远小于 16 说明全局读没向量化，`grid_size` 远小于 SM 数说明 GPU 大半空闲。ncu 下的 `gpu__time_duration` 含 replay 开销，不要拿它比快慢。
+
 只优化某一个 shape 时，让 campaign 的 shape 集合只包含它。不要为了「测得更全」加进交付范围外的 shape。
 
 ## 实验日志

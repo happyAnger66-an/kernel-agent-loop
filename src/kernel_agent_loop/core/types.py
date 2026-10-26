@@ -51,6 +51,7 @@ class EvalResult:
     env_after: EnvSnapshot
     per_shape: dict[str, ShapePerf] = field(default_factory=dict)
     symptoms: tuple[str, ...] = ()
+    profile: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

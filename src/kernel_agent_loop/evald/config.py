@@ -21,6 +21,8 @@ class EvaldConfig:
     reps: int = 3
     run_timeout: float = 120.0
     ops_root: Path | None = None
+    profile_image: str | None = None
+    profile_timeout: float = 600.0
 
     @classmethod
     def from_dict(cls, data: dict, *, base: Path | None = None) -> "EvaldConfig":
@@ -42,6 +44,8 @@ class EvaldConfig:
             reps=int(data.get("reps", 3)),
             run_timeout=float(data.get("run_timeout", 120.0)),
             ops_root=None if ops_root is None else _resolve(ops_root, base),
+            profile_image=data.get("profile_image"),
+            profile_timeout=float(data.get("profile_timeout", 600.0)),
         )
 
     @classmethod

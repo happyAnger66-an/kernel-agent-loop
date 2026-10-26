@@ -104,11 +104,15 @@ def measure(
     worker_args: list[str] | None = None,
     incumbent_dir: Path | None = None,
     floor_probe=None,
+    profiler=None,
+    profile_shapes: list[Shape] | None = None,
 ) -> tuple[EvalResult, tuple[str, ...]]:
     """Compile, check correctness, interleaved bench, env snapshots. No gate and no experiment log.
 
     The incumbent comes from `incumbent_dir` when given, otherwise from `git show <best>` in repo.
     `floor_probe(spec, shape) -> us`, when given, fills ShapePerf.floor_us.
+    `profiler(cubin_path, spec, [(shape, launch config)], seed=)` profiles a correct candidate on
+    `profile_shapes`; if it fails, the eval still stands and the reason goes into symptoms.
     """
     if backend is None:
         if backend_name != "cuda":
@@ -152,8 +156,10 @@ def measure(
             if floor_probe is not None:
                 perf = replace(perf, floor_us=floor_probe(spec, shape))
             per_shape[shape.label] = perf
+        profile, notes = _profile(profiler, artifact, candidate, spec, profile_shapes or [], seed=seed)
         return (
-            _result(commit, env_before, env_probe(), compile_ok=True, correct=True, per_shape=per_shape),
+            _result(commit, env_before, env_probe(), compile_ok=True, correct=True, per_shape=per_shape,
+                    symptoms=notes, profile=profile),
             (),
         )
     finally:
@@ -171,6 +177,7 @@ def _result(
     correct: bool,
     per_shape: dict[str, ShapePerf],
     symptoms: tuple[str, ...] = (),
+    profile: dict[str, dict[str, float]] | None = None,
 ) -> EvalResult:
     return EvalResult(
         commit=commit,
@@ -180,7 +187,19 @@ def _result(
         env_after=env_after,
         per_shape=per_shape,
         symptoms=symptoms,
+        profile=profile or {},
     )
+
+
+def _profile(profiler, artifact, candidate, spec, shapes: list[Shape], *, seed: int
+             ) -> tuple[dict[str, dict[str, float]], tuple[str, ...]]:
+    if profiler is None or not shapes:
+        return {}, ()
+    try:
+        items = [(shape, candidate.launch_config(shape)) for shape in shapes]
+        return profiler(artifact.cubin_path, spec, items, seed=seed), ()
+    except Exception as exc:
+        return {}, (f"profile unavailable: {exc}",)
 
 
 def _bind_runs(artifact, incumbent_artifact, backend, *, isolate: bool, run_timeout: float,
