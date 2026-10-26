@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 *.egg-info/
 deploy/thor/hidden_shapes.json
+.kal/

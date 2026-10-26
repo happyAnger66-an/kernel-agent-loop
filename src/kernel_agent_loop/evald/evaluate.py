@@ -106,8 +106,12 @@ def measure(
     isolate: bool = False,
     run_timeout: float = 120.0,
     worker_args: list[str] | None = None,
+    incumbent_dir: Path | None = None,
 ) -> tuple[EvalResult, tuple[str, ...]]:
-    """Compile, check correctness, interleaved bench, env snapshots. No gate and no experiment log."""
+    """Compile, check correctness, interleaved bench, env snapshots. No gate and no experiment log.
+
+    The incumbent comes from `incumbent_dir` when given, otherwise from `git show <best>` in repo.
+    """
     if backend is None:
         if backend_name != "cuda":
             raise ValueError(f"no backend registered for {backend_name}")
@@ -132,9 +136,10 @@ def measure(
     incumbent = None
     try:
         if commit != best:
+            if incumbent_dir is None:
+                incumbent_dir = _materialize_impl(repo, best, f"ops/{op}/impls/{backend_name}")
             incumbent = _load_incumbent(
-                repo, best, op, backend_name, backend,
-                isolate=isolate, run_timeout=run_timeout, worker_args=worker_args,
+                incumbent_dir, backend, isolate=isolate, run_timeout=run_timeout, worker_args=worker_args
             )
         report = check_correctness(spec, candidate, shapes, seed=seed)
         if not report.ok:
@@ -193,18 +198,14 @@ def _close_run(run) -> None:
 
 
 def _load_incumbent(
-    repo: Path,
-    sha: str,
-    op: str,
-    backend_name: str,
+    directory: Path | None,
     backend,
     *,
     isolate: bool,
     run_timeout: float,
     worker_args: list[str] | None,
 ):
-    directory = _materialize_impl(repo, sha, f"ops/{op}/impls/{backend_name}")
-    if directory is None:
+    if directory is None or not Path(directory).is_dir():
         return None
     try:
         artifact = backend.build(directory)

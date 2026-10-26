@@ -66,46 +66,32 @@ else:
 
 `evaluate` 会编译、做正确性、和 `campaign.best` 交替计时、读环境快照、调用 `AcceptanceGate`，并把判定写入 `log`。它不修改最优指针。`campaign.best` 编不过时当作没有 incumbent，第一个正确候选会被接受。默认 shape 是 `spec.public_shapes()`；隐藏 shape 由调用方追加到 `shapes`。默认环境探针是 `nvidia-smi`，频率或温度不合格会得到 `INVALID`。
 
-在 Thor 上评测时不要本机 `evaluate`，改为打包后走 `EvalClient`：
+在 Thor 上评测时不要本机 `evaluate`，也不要自己拼 `make_bundle` + `EvalClient`，用 `run_round` 跑一整轮：
 
 ```python
-from kernel_agent_loop.evald.bundle import make_bundle
-from kernel_agent_loop.evald.client import EvalClient
+from kernel_agent_loop.core.campaign import Campaign
+from kernel_agent_loop.core.experiment_log import ExperimentLog
 from kernel_agent_loop.core.gate import AcceptanceGate
+from kernel_agent_loop.evald.client import EvalClient
 from kernel_agent_loop.evald.env_guard import EnvGuard
-from kernel_agent_loop.core.experiment_log import Attempt, ExperimentLog
+from kernel_agent_loop.loop import run_round
 
-bundle = make_bundle(
-    repo, campaign.op, campaign.backend,
-    {
-        "campaign": campaign.campaign_id,
-        "commit": sha,
-        "parent": campaign.best,
-        "op": campaign.op,
-        "backend": campaign.backend,
-        "lever": lever,
-        "hypothesis": hypothesis,
-    },
+client = EvalClient(
+    mode="ssh", host="tz", user="nvidia", port=2240,
+    remote_config="/home/nvidia/kal/evald.config.json",
+    evald_cmd="/home/nvidia/kal/venv/bin/python -m kernel_agent_loop.evald.serve",
+    remote_workdir="/home/nvidia/kal/inbox",
 )
-result = EvalClient(
-    mode="ssh", host="<thor>", user="<user>", remote_config="/opt/kal/evald.config.json",
-).submit_sync(bundle)
-decision = AcceptanceGate(env_guard=EnvGuard(max_temp_drift_c=5.0), min_gain_pct=1.0).decide(result)
-log.record(Attempt(
-    campaign=campaign.campaign_id, commit=sha, parent=campaign.best,
-    lever=lever, hypothesis=hypothesis, verdict=decision.verdict.value,
-    symptoms=(), per_shape={
-        label: {
-            "candidate_us": perf.candidate_us,
-            "incumbent_us": perf.incumbent_us,
-            "noise_pct": perf.noise_pct,
-        }
-        for label, perf in result.per_shape.items()
-    },
-))
+outcome = run_round(
+    Campaign.load(repo, "rms-1"), client=client, log=ExperimentLog(path),
+    gate=AcceptanceGate(env_guard=EnvGuard(max_temp_drift_c=5.0), min_gain_pct=1.0),
+    lever=lever, hypothesis=hypothesis,
+)
 ```
 
-Thor 配置示例在 `deploy/thor/`。`evald_run` 持 `flock`、overlay 候选包、可选 `nvpmodel`/`jetson_clocks`，只回传 `EvalResult`；接受或回退仍由你在开发机根据 `decision` 调用 `accept` / `revert`。
+`run_round` 依次做：`tried` 去重（重复抛 `AlreadyTried`）→ `StaticJudge` → `commit_candidate` → 打包（附带从 git 取出的 `campaign.best` 实现作为 incumbent）→ `submit_sync` → Gate → 写日志 → `accept` / `revert`（`INVALID` 时工作区保持不动，可原样重提）。候选包不带 incumbent 时 Thor 上没有比较对象，任何正确候选都会被接受，所以不要绕过 `run_round` 自己打包。
+
+Thor 配置示例在 `deploy/thor/`。`evald_run` 持 `flock`、overlay 候选包、可选 `nvpmodel`/`jetson_clocks`，只回传 `EvalResult`（含 `symptoms`）。
 
 `commit_candidate` 只会把 `ops/<op>/impls/<backend>/` 的改动放进提交。该目录以外的修改留在工作区，不会被这次提交带走。
 

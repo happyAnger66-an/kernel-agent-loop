@@ -96,3 +96,21 @@ def test_meta_pointing_at_another_op_is_rejected(trees):
     bundle = raw_bundle({"impl/kernel.cu": b"// v1\n"}, meta={**META, "op": "softmax"})
     with pytest.raises(BundleError):
         overlay_bundle(bundle, trusted, work, op="rmsnorm", backend="cuda")
+
+
+# 用例: 候选包带上 incumbent 时展开到工作区 _incumbent，候选实现目录不受影响
+# 参数: trees 是可信树、开发机工作区和评测工作目录
+def test_bundle_carries_incumbent_separately(trees):
+    trusted, dev, work = trees
+    bundle = make_bundle(dev, "rmsnorm", "cuda", META, incumbent={"kernel.cu": b"// v0\n"})
+    overlay_bundle(bundle, trusted, work, op="rmsnorm", backend="cuda")
+    assert (work / "_incumbent/kernel.cu").read_text() == "// v0\n"
+    assert (work / IMPL / "kernel.cu").read_text() == "// v1\n"
+
+
+# 用例: incumbent 成员同样拒收越界路径
+# 参数: trees 是可信树、开发机工作区和评测工作目录
+def test_incumbent_member_with_parent_path_is_rejected(trees):
+    trusted, _, work = trees
+    with pytest.raises(BundleError):
+        overlay_bundle(raw_bundle({"incumbent/../evil": b"x"}), trusted, work, op="rmsnorm", backend="cuda")

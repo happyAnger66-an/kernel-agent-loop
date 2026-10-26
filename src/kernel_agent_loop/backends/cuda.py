@@ -1,4 +1,5 @@
 import importlib.util
+import random
 import sys
 import shutil
 import subprocess
@@ -76,7 +77,7 @@ class CudaKernel:
         _make_current()
         config = self._launch_config(shape)
         flush_ptr, flush_bytes = self._flush_buffer()
-        with _DeviceArgs(config, inputs, outputs, shape) as args:
+        with _DeviceArgs(config, inputs, outputs, shape, jitter=True) as args:
             for _ in range(warmup):
                 self._launch_once(config, args)
             starts = [_check(cuda.cuEventCreate(0)) for _ in range(iters)]
@@ -141,13 +142,22 @@ class CudaKernel:
 
 
 class _DeviceArgs:
-    """Device copies of the launch args for one shape; freed on exit."""
+    """Device copies of the launch args for one shape; freed on exit.
 
-    def __init__(self, config: dict, inputs: dict, outputs: dict, shape) -> None:
+    With jitter, each buffer starts at a random 256-byte-aligned offset inside a padded allocation.
+    Kernel time on Thor depends on buffer placement, and cuMemAlloc hands back the same addresses
+    within a process, so without jitter every sample in a process sees the same placement.
+    """
+
+    _JITTER_BYTES = 1 << 20
+    _ALIGN = 256
+
+    def __init__(self, config: dict, inputs: dict, outputs: dict, shape, *, jitter: bool = False) -> None:
         self._config = config
         self._inputs = inputs
         self._outputs = outputs
         self._shape = shape
+        self._jitter = jitter
         self._allocations: list = []
         self._output_slots: dict = {}
         self._kernel_args: list = []
@@ -163,8 +173,11 @@ class _DeviceArgs:
                 if name in self._inputs or name in self._outputs:
                     source = self._inputs[name] if name in self._inputs else self._outputs[name]
                     host = np.ascontiguousarray(source)
-                    ptr = _check(cuda.cuMemAlloc(host.nbytes))
-                    self._allocations.append(ptr)
+                    pad = self._JITTER_BYTES if self._jitter else 0
+                    base = _check(cuda.cuMemAlloc(host.nbytes + pad))
+                    self._allocations.append(base)
+                    offset = random.randrange(0, pad, self._ALIGN) if pad else 0
+                    ptr = int(base) + offset
                     _check(cuda.cuMemcpyHtoD(ptr, host.ctypes.data, host.nbytes))
                     self._kernel_args.append(ctypes.c_uint64(int(ptr)))
                     if name in self._outputs:

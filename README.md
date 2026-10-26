@@ -17,14 +17,15 @@
 | 算子契约 | `ops/<op>/spec.py`，用 `load_opspec` 加载。现有算子是 RMSNorm |
 | 候选的提交、接受、回退 | `Campaign`。每个 campaign 一条分支 `kal/<id>`，最优提交记在 `.git/kal/<id>.json` |
 | 正确性 | `check_correctness`：每轮新种子、输出先填 NaN、核对输入没被改写 |
-| 计时统计 | `interleaved_bench`：候选和当前最优交替跑，噪声取逐轮中位数的极差；采样值是 `CudaKernel.bench()` 的 CUDA Event 设备时间（每次 launch 前冲 L2） |
+| 计时统计 | `interleaved_bench`：候选和当前最优交替跑，噪声取两侧逐轮中位数极差的较大者；采样值是 `CudaKernel.bench()` 的 CUDA Event 设备时间（每次 launch 前冲 L2，缓冲区地址随机偏移） |
 | 接受门禁 | `AcceptanceGate`（开发机） |
 | 静态检查 | `StaticJudge`：只允许改实现目录，拦截进程、网络和文件逃逸 |
 | 实验日志 | `ExperimentLog`：记录每次尝试，按 campaign 和父版本去重手段 |
-| 候选包 | `make_bundle` / `overlay_bundle`：包里只有实现目录 |
+| 候选包 | `make_bundle` / `overlay_bundle`：包里是候选实现目录，外加从 git 取出的 incumbent（`campaign.best`） |
 | CUDA 后端 | `CudaBackend`：编译 cubin 并用 `run(inputs, outputs, shape)` 启动 |
 | 本地评测 | `evaluate`：编译、正确性、交替计时、环境快照、门禁、写日志；`isolate=True` 时 kernel 在子进程跑 |
 | Thor 评测 | `evald_run` / `EvalClient`：`flock` → overlay 候选包 → `measure` → 回传 `EvalResult`；Gate 仍在开发机 |
+| 一轮优化 | `run_round`（`kernel_agent_loop.loop`）：去重、静态检查、提交、打包、送评、门禁、写日志、接受/回退 |
 
 还没有的部分：常驻 evald 守护进程、ncu/SASS 症状诊断、L2 调优库、AiInfraKB 接入、Triton 和 CuTe DSL 后端。
 

@@ -38,6 +38,18 @@ class Campaign:
     def revert(self) -> None:
         _git(self.repo, "checkout", self.best, "--", self._impl_dir())
 
+    def impl_files(self, sha: str) -> dict[str, bytes]:
+        """Impl-dir files at `sha`, keyed by path relative to the impl dir."""
+        impl = self._impl_dir()
+        listed = _git(self.repo, "ls-tree", "-r", "--name-only", sha, "--", impl)
+        files = {}
+        for rel in (line for line in listed.splitlines() if line):
+            blob = subprocess.run(
+                ["git", "show", f"{sha}:{rel}"], cwd=self.repo, check=True, capture_output=True
+            ).stdout
+            files[rel.removeprefix(f"{impl}/")] = blob
+        return files
+
     def _impl_dir(self) -> str:
         return f"ops/{self.op}/impls/{self.backend}"
 
@@ -52,7 +64,8 @@ class Campaign:
 
 
 def _meta_path(repo: Path, campaign_id: str) -> Path:
-    return Path(repo) / ".git" / "kal" / f"{campaign_id}.json"
+    git_dir = Path(_git(repo, "rev-parse", "--absolute-git-dir"))
+    return git_dir / "kal" / f"{campaign_id}.json"
 
 
 def _git(repo: Path, *args: str) -> str:

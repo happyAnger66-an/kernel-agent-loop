@@ -12,7 +12,7 @@ from pathlib import Path
 
 from kernel_agent_loop.core.opspec import load_opspec
 from kernel_agent_loop.core.types import EvalResult
-from kernel_agent_loop.evald.bundle import BundleError, overlay_bundle
+from kernel_agent_loop.evald.bundle import INCUMBENT_DIR, BundleError, overlay_bundle
 from kernel_agent_loop.evald.config import EvaldConfig
 from kernel_agent_loop.evald.env_guard import read_gpu_env
 from kernel_agent_loop.evald.evaluate import measure
@@ -70,6 +70,7 @@ def evald_run(
             isolate=config.isolate,
             run_timeout=config.run_timeout,
             worker_args=worker_args,
+            incumbent_dir=work / INCUMBENT_DIR,
         )
         return result
 

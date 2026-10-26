@@ -47,6 +47,13 @@ def test_noise_is_the_spread_of_incumbent_round_medians():
     assert perf.noise_pct == pytest.approx(4.0)
 
 
+# 用例: 候选一侧更抖时，噪声取两侧中较大的那个
+# 参数: 无
+def test_noise_takes_the_noisier_side():
+    perf = interleaved_bench(from_sequence([80, 92, 80, 80, 80]), constant(100), rounds=5, reps=1)
+    assert perf.noise_pct == pytest.approx(15.0)
+
+
 # 用例: 两边耗时同步线性变慢时，交替计时得出的加速比误差在 1% 以内
 # 参数: 无
 def test_interleaving_cancels_slow_drift():

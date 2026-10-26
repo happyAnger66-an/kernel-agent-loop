@@ -14,7 +14,8 @@ def interleaved_bench(candidate, incumbent, *, rounds: int, reps: int) -> ShapeP
     if incumbent is None:
         return ShapePerf(candidate_us, None, _noise_pct(candidate_rounds, candidate_us))
     incumbent_us = float(np.median(incumbent_rounds))
-    return ShapePerf(candidate_us, incumbent_us, _noise_pct(incumbent_rounds, incumbent_us))
+    noise = max(_noise_pct(incumbent_rounds, incumbent_us), _noise_pct(candidate_rounds, candidate_us))
+    return ShapePerf(candidate_us, incumbent_us, noise)
 
 
 def _noise_pct(round_medians: list[float], median: float) -> float:

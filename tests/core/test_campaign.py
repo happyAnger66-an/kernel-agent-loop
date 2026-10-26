@@ -73,3 +73,12 @@ def test_revert_restores_impl_from_best_and_keeps_best(op_repo):
     assert (op_repo / IMPL / "kernel.cu").read_text() == "// v0\n"
     assert c.best == best
     assert git(op_repo, "diff", best, "--", IMPL) == ""
+
+
+# 用例: 在 git worktree 里（.git 是文件）也能创建并重新加载 campaign
+# 参数: op_repo 是临时 git 仓库；tmp_path 放 worktree
+def test_campaign_works_inside_a_git_worktree(op_repo, tmp_path):
+    worktree = tmp_path / "wt"
+    git(op_repo, "worktree", "add", "-q", "--detach", str(worktree), "HEAD")
+    created = Campaign.create(worktree, campaign_id="wt-1", op="rmsnorm", backend="cuda", hardware="thor")
+    assert Campaign.load(worktree, "wt-1").best == created.best

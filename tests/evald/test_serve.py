@@ -138,3 +138,25 @@ def test_evald_run_includes_hidden_shapes(op_repo, repo_root, tmp_path):
         backend=FakeBackend(spec),
     )
     assert "hidden-r2-h16" in result.per_shape
+
+
+# 用例: 候选包带上更快的 incumbent 时，更慢的候选相对它被回退
+# 参数: op_repo 临时仓库；repo_root 提供真实 OpSpec；tmp_path 工作区
+def test_evald_run_compares_against_bundled_incumbent(op_repo, repo_root, tmp_path):
+    from kernel_agent_loop.core.opspec import load_opspec
+
+    trusted = _trusted(op_repo, repo_root, tmp_path)
+    (op_repo / IMPL / "kernel.cu").write_text("CANDIDATE_SLOW\n")
+    spec = load_opspec(repo_root / "ops", "rmsnorm")
+    meta = {"campaign": "rms-1", "commit": "c1", "parent": "c0", "op": "rmsnorm", "backend": "cuda",
+            "lever": "slow", "hypothesis": "unit"}
+    bundle = make_bundle(op_repo, "rmsnorm", "cuda", meta, incumbent={"kernel.cu": b"CANDIDATE_OK\n"})
+    result = evald_run(
+        bundle,
+        _config(trusted, tmp_path, repo_root, hidden_shapes=()),
+        env_probe=lambda: STEADY,
+        backend=FakeBackend(spec),
+    )
+    assert all(perf.incumbent_us is not None for perf in result.per_shape.values())
+    gate = AcceptanceGate(env_guard=EnvGuard(max_temp_drift_c=5.0), min_gain_pct=1.0)
+    assert gate.decide(result).verdict is Verdict.REVERT

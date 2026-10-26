@@ -387,9 +387,9 @@ evald 用 campaign 创建时锁定的可信源码树，把 `impl/` **整体替�
 
 ### 9.5 计时与判定
 
-- 计时测的是 kernel 设备时间：`CudaKernel` 把 cubin 加载进进程级 primary context 一次；`bench()` 上传一次输入，每次 launch 前用 `cuMemsetD8Async` 写一块 `max(2×L2, 8 MiB)` 的缓冲来冲掉 L2，用 CUDA Event 只包住 launch，取单次 launch 的中位数。`isolate=True` 时 `bench` 在子进程里执行，只回传耗时，JSONL 往返不计入。没有 `bench()` 的 runner（单测里的假后端）才退回墙钟。
+- 计时测的是 kernel 设备时间：`CudaKernel` 把 cubin 加载进进程级 primary context 一次；`bench()` 上传一次输入，每次 launch 前用 `cuMemsetD8Async` 写一块 `max(2×L2, 8 MiB)` 的缓冲来冲掉 L2，用 CUDA Event 只包住 launch，取单次 launch 的中位数。Thor 上 kernel 耗时随缓冲区物理布局呈多峰（同一代码不同进程可差 15–30%），而同一进程内 `cuMemAlloc` 反复返回相同地址，所以每次 `bench()` 把缓冲区放在 1 MiB 内随机的 256 B 对齐偏移上，让多峰体现在噪声里而不是固化成某一侧的“加速”。`isolate=True` 时 `bench` 在子进程里执行，只回传耗时，JSONL 往返不计入。没有 `bench()` 的 runner（单测里的假后端）才退回墙钟。
 - 候选和**当前最优版本（incumbent）**在同一会话里交替运行，抵消温度和频率漂移。
-- 每个 shape 得到一个 `ShapePerf`：候选和 incumbent 各自的逐轮中位数再取中位数；`noise_pct` 是 incumbent 逐轮中位数的极差除以中位数。
+- 每个 shape 得到一个 `ShapePerf`：候选和 incumbent 各自的逐轮中位数再取中位数；`noise_pct` 取候选和 incumbent 两侧“逐轮中位数极差 / 中位数”的较大者。
 - 第一个候选没有 incumbent，只要正确且环境合格就接受，作为起点。
 - Gate 的判定顺序：编译失败或不正确判 `reject`；环境不合格判 `invalid`（需要重测）；之后只有同时满足下面两条才判 `accept`，否则判 `revert`：
   - 各 shape 加速比的几何平均，超过 `1 + max(各 shape 的 noise_pct, min_gain_pct)`；
@@ -430,6 +430,7 @@ ops/<op>/impls/cuda/
 - `evaluate`：本地便利封装；`isolate=True` 时 kernel `run` 走子进程 JSONL。
 - `evald_run`：Thor 侧 `flock` → `overlay_bundle` → `measure` → 写出 JSON。
 - `EvalClient`：`mode="local"` 或 `mode="ssh"` 同步 `submit_sync(bundle) -> EvalResult`；Gate 仍在开发机。
+- Thor 工作树没有 `.git`，incumbent 由候选包的 `incumbent/` 成员提供（展开到 `work/_incumbent`）。`run_round` 从开发机 git 的 `campaign.best` 取这份文件，不用 Agent 工作区里的内容。
 
 ### 9.9 Phase 2.5（Thor 运营闭环）
 
