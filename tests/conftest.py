@@ -1,3 +1,4 @@
+import os
 import subprocess
 from pathlib import Path
 
@@ -54,3 +55,16 @@ def small_ops_root(repo_root: Path) -> Path:
         (root / "rmsnorm" / "spec.py").write_text(text)
         _SMALL_OPS.append(root)
     return _SMALL_OPS[0]
+
+
+TWO_LAYER_SCHEMAS = ("ticket.schema.json", "cell-result.schema.json")
+
+
+@pytest.fixture
+def kb_src() -> Path:
+    """AiInfraKB 正本：先看 AIINFRAKB_ROOT，再找同级目录；还没有两层 schema 时跳过。"""
+    env = os.environ.get("AIINFRAKB_ROOT")
+    root = Path(env) if env else REPO_ROOT.parent / "AiInfraKB"
+    if not all((root / "schema" / name).is_file() for name in TWO_LAYER_SCHEMAS):
+        pytest.skip(f"{root} 没有 ticket / cell-result schema")
+    return root

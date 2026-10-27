@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ticket.schema.json",
+  "title": "Cell ticket issued by the campaign planner (kb ticket)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "ticket", "track", "cell", "goal", "accuracy_gate",
+    "incumbent", "priors", "do_not_replay", "budget", "lease", "issued_at"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "ticket": {
+      "description": "<model>/<track>/<node>/<module>",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9.]*$"
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "track", "hardware"],
+      "properties": {
+        "model": {"$ref": "#/$defs/name"},
+        "track": {"$ref": "#/$defs/name"},
+        "hardware": {"$ref": "#/$defs/name"}
+      }
+    },
+    "cell": {"$ref": "#/$defs/cell"},
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_ms", "current_ms", "baseline_card"],
+      "properties": {
+        "target_ms": {"$ref": "#/$defs/ms"},
+        "current_ms": {"$ref": "#/$defs/ms"},
+        "module_share_ms": {"type": "number", "minimum": 0},
+        "baseline_card": {"$ref": "#/$defs/card_id"}
+      }
+    },
+    "accuracy_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "checks"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1},
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["metric", "op", "value"],
+            "properties": {
+              "metric": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+              "op": {"enum": ["<", "<=", ">", ">="]},
+              "value": {"type": "number"}
+            }
+          }
+        }
+      }
+    },
+    "incumbent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "commit"],
+      "properties": {
+        "repo": {"$ref": "#/$defs/name"},
+        "commit": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "priors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["card", "model", "outcome"],
+        "properties": {
+          "card": {"$ref": "#/$defs/card_id"},
+          "model": {"$ref": "#/$defs/name"},
+          "outcome": {"$ref": "#/$defs/outcome"},
+          "claim": {"type": "string"}
+        }
+      }
+    },
+    "do_not_replay": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["node", "module", "card", "outcome"],
+        "properties": {
+          "node": {"$ref": "#/$defs/node"},
+          "module": {"$ref": "#/$defs/module"},
+          "card": {"$ref": "#/$defs/card_id"},
+          "outcome": {"enum": ["apply", "reject"]}
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempts", "wall_hours", "e2e_runs", "repair_limit", "stall_limit"],
+      "properties": {
+        "attempts": {"type": "integer", "minimum": 1},
+        "wall_hours": {"type": "number", "exclusiveMinimum": 0},
+        "e2e_runs": {"type": "integer", "minimum": 1},
+        "repair_limit": {"type": "integer", "minimum": 0},
+        "stall_limit": {"type": "integer", "minimum": 1}
+      }
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["holder", "expires", "path"],
+      "properties": {
+        "holder": {"$ref": "#/$defs/author"},
+        "expires": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"},
+        "path": {"type": "string", "pattern": "^leases/[a-z0-9.+_-]+\\.yaml$"}
+      }
+    },
+    "issued_at": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"}
+  },
+  "$defs": {
+    "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.+-]*$"},
+    "node": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "module": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.]*$"},
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "node", "module"],
+      "properties": {
+        "phase": {"type": "string", "pattern": "^P[0-9]+$"},
+        "node": {"$ref": "#/$defs/node"},
+        "module": {"$ref": "#/$defs/module"}
+      }
+    },
+    "ms": {"type": "number", "exclusiveMinimum": 0},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
+    "card_id": {"type": "string", "pattern": "^kb-[0-9]{4}$"},
+    "outcome": {"enum": ["apply", "partial", "reject", "measure"]},
+    "author": {"type": "string", "pattern": "^(agent|human):.+"}
+  }
+}

@@ -7,7 +7,7 @@ name = "kernel-agent-loop"
 version = "0.0.0"
 description = "Agent-driven GPU kernel optimization loop with a trusted evaluator"
 requires-python = ">=3.10"
-dependencies = ["numpy"]
+dependencies = ["numpy", "jsonschema>=4.18"]
 
 [project.optional-dependencies]
 cuda = ["cuda-python"]

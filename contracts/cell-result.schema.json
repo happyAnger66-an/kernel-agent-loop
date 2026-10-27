@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cell-result.schema.json",
+  "title": "Cell result returned by the in-cell search",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "ticket", "outcome", "stop_reason", "start",
+    "attempts", "env", "finished_at"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "ticket": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9.]*$"
+    },
+    "outcome": {"enum": ["apply", "partial", "reject", "measure"]},
+    "stop_reason": {
+      "enum": [
+        "budget_attempts", "budget_time", "budget_e2e",
+        "stalled", "share_cap", "exhausted", "measure_only"
+      ]
+    },
+    "start": {"$ref": "#/$defs/point"},
+    "final": {"$ref": "#/$defs/point"},
+    "attempts": {"type": "array", "items": {"$ref": "#/$defs/attempt"}},
+    "remaining": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lever", "hypothesis", "expected_gain_ms"],
+        "properties": {
+          "lever": {"type": "string", "minLength": 1},
+          "hypothesis": {"type": "string", "minLength": 1},
+          "expected_gain_ms": {"type": "number", "exclusiveMinimum": 0}
+        }
+      }
+    },
+    "conditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["software"],
+      "properties": {
+        "software": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "string", "minLength": 1}
+        },
+        "precision": {
+          "type": "array",
+          "items": {"enum": ["fp32", "tf32", "bf16", "fp16", "fp8", "nvfp4", "int8", "int4"]},
+          "uniqueItems": true
+        }
+      }
+    },
+    "env": {
+      "type": "object",
+      "required": ["hardware"],
+      "properties": {
+        "hardware": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.+-]*$"}
+      },
+      "additionalProperties": {"type": ["string", "number", "boolean"]}
+    },
+    "finished_at": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"const": "apply"}}},
+      "then": {
+        "required": ["final"],
+        "properties": {"attempts": {"contains": {"$ref": "#/$defs/accepted"}}}
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "partial"}}},
+      "then": {
+        "required": ["final", "remaining"],
+        "properties": {
+          "attempts": {"contains": {"$ref": "#/$defs/accepted"}},
+          "remaining": {"minItems": 1}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "reject"}}},
+      "then": {
+        "required": ["conditions"],
+        "properties": {
+          "attempts": {"minItems": 1, "not": {"contains": {"$ref": "#/$defs/accepted"}}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "measure"}}},
+      "then": {
+        "properties": {
+          "attempts": {"maxItems": 0},
+          "stop_reason": {"const": "measure_only"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{7,40}$"},
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "e2e_ms", "segments_ms", "noise_pct"],
+      "properties": {
+        "commit": {"$ref": "#/$defs/sha"},
+        "e2e_ms": {"type": "number", "exclusiveMinimum": 0},
+        "segments_ms": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "number", "exclusiveMinimum": 0}
+        },
+        "noise_pct": {"type": "number", "minimum": 0},
+        "accuracy": {
+          "type": "object",
+          "additionalProperties": {"type": ["number", "string"]}
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "parent", "lever", "kind", "hypothesis", "expected_gain_ms", "stage_reached", "verdict"],
+      "properties": {
+        "commit": {"$ref": "#/$defs/sha"},
+        "parent": {"$ref": "#/$defs/sha"},
+        "lever": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["draft", "repair", "improve"]},
+        "hypothesis": {"type": "string", "minLength": 1},
+        "expected_gain_ms": {"type": "number", "minimum": 0},
+        "stage_reached": {
+          "enum": ["static", "build", "op_correctness", "op_bench", "e2e_accuracy", "e2e_bench"]
+        },
+        "verdict": {"enum": ["accept", "revert", "reject", "invalid"]},
+        "e2e_ms": {"type": "number", "exclusiveMinimum": 0},
+        "note": {"type": "string"}
+      }
+    },
+    "accepted": {
+      "type": "object",
+      "required": ["verdict"],
+      "properties": {"verdict": {"const": "accept"}}
+    }
+  }
+}
