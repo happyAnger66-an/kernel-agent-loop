@@ -27,6 +27,7 @@ class Rule:
     basis: str
 
 
+# Keys are the source of truth for AiInfraKB vocab/kernel_symptoms.yaml (tests/evald/test_kb_symptoms.py).
 RULES = {
     "narrow-global-access": Rule(
         (("vector-16b", "load/store 16 B per thread (uint4 / 8 halves) from 16 B-aligned addresses, "
