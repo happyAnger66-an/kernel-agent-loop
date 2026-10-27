@@ -158,7 +158,7 @@ python3 -m pytest -m thor --override-ini="addopts="
 
 ## 还没实现
 
-不要假设下面这些已经存在：`kal` 命令、MCP、常驻 evald 守护进程、Triton / CuTe DSL / TIRx 后端、ncu 症状映射、L2 调优库、按工单自动搜索的循环。按次调用的 `evald_run` / `EvalClient`（含 SSH 同步）已经可用。格子结果可以经 `induce_cell_result` 归纳，再用 `propose_cell_result` 写成 AiInfraKB 的 inbox 草稿；`contracts/` 要和知识库的 schema 保持字节一致。
+不要假设下面这些已经存在：`kal` 命令、MCP、常驻 evald 守护进程、Triton / CuTe DSL / TIRx 后端、ncu 症状映射、L2 调优库、按工单自动搜索的循环。按次调用的 `evald_run` / `EvalClient`（含 SSH 同步）已经可用。格子结果可以经 `induce_cell_result` 归纳，再用 `return_cell_result` 经 `kb return` 交回 AiInfraKB，写成 inbox 草稿并释放占位（`author` 用领工单时的 agent）；`contracts/` 要和知识库的 schema 保持字节一致。
 
 <!-- agent-kit:begin -->
 

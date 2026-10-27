@@ -166,6 +166,6 @@ shape 集合就是这次优化要守住的范围。只优化某一个 shape 时�
 
 实验日志记下每次尝试的提交、父提交、手段、假设、判定和症状，包括失败。`tried(campaign, lever=..., parent=...)` 用来避免在同一个父版本上重复同一个手段。
 
-格子结论可以交回 AiInfraKB，但还不会自己跑搜索。`induce_cell_result` 把工单、实验日志里的尝试，以及调用方补上的 `kind`、`expected_gain_ms`、`stage_reached`、`e2e_ms` 收成一份 `cell-result`。`e2e_ms` 只用来自调用方，不从 `per_shape` 的微秒数里推。`propose_cell_result` 调用 `kb propose --type lesson`，把草稿放进 `inbox/`，钉上工单里的节点和模块，不自动接受。`contracts/` 是工单和格子结果 schema 的副本；设置了 `AIINFRAKB_ROOT`，或回写时传入知识库根目录，会先按字节比对，不一致就停。
+格子结论可以交回 AiInfraKB，但还不会自己跑搜索。`induce_cell_result` 把工单、实验日志里的尝试，以及调用方补上的 `kind`、`expected_gain_ms`、`stage_reached`、`e2e_ms` 收成一份 `cell-result`。`e2e_ms` 只用来自调用方，不从 `per_shape` 的微秒数里推。`return_cell_result` 把结果经标准输入交给 AiInfraKB 的 `kb return`：成卡由知识库负责，草稿放进 `inbox/`、钉上工单里的节点和模块，证据里有每次尝试和原始 JSON，不自动接受；`author` 与领工单的 agent 相同时，这一格的占位随之释放。算子级计时这类 cell-result 装不下的内容用 `note` 附在证据末尾。`contracts/` 是工单和格子结果 schema 的副本；设置了 `AIINFRAKB_ROOT`，或回写时传入知识库根目录，会先按字节比对，不一致就停。
 
 ncu 原始指标随 `EvalResult.profile` 回传，归纳出的症状（`[code] 各 shape 证据. Try: 手段 id (说明). Basis: 依据`）写进 `symptoms`，随每次尝试记进实验日志。`run_round(target=症状码)` 把这一轮针对的症状记进日志的 `target` 列，有 ncu 数据时 `profiled` 为真。`tuning` 据此按症状给手段排序：得分是 `(接受 + 1) / (尝试 + 2)`，没试过的种子手段 0.5；`resolved` 是有 profile 的正确尝试里目标症状消失的次数。统计目前在一个日志文件内跨 campaign 做，还不按硬件和算子分桶。

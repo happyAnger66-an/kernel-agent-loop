@@ -1,5 +1,6 @@
 """模块: kernel_agent_loop.knowledge.handoff
-功能: 格子结果经 kb propose 写成 lesson 草稿，钉在同一格，留在 inbox，不自动接受。
+功能: 格子结果经 kb return 交回 AiInfraKB：成卡由知识库负责，草稿钉在同一格、留在 inbox，不自动接受；
+成功后释放这一格的占位。
 """
 
 import json
@@ -10,7 +11,9 @@ from pathlib import Path
 import pytest
 
 from kernel_agent_loop.knowledge.cell_result import CellResultError, induce_cell_result
-from kernel_agent_loop.knowledge.handoff import propose_argv, propose_cell_result
+from kernel_agent_loop.knowledge.handoff import return_argv, return_cell_result
+
+AUTHOR = "agent:kal/test"
 
 
 def _kb_cmd(src: Path):
@@ -18,6 +21,8 @@ def _kb_cmd(src: Path):
     kb = src / "tools" / "kb.py"
     if py is None or not kb.is_file():
         pytest.skip("需要 python3.12 和 AiInfraKB 的 tools/kb.py")
+    if not (src / "tools" / "kb_return.py").is_file():
+        pytest.skip(f"{src} 没有 kb return")
     return [py, str(kb)]
 
 
@@ -54,41 +59,33 @@ def _mini_kb(tmp_path, src: Path) -> Path:
     return root
 
 
-# 用例: propose 参数是 lesson，地图钉在工单那一格，claim 带端到端毫秒
-# 参数: 无
-def test_propose_argv_pins_the_ticket_cell():
-    result = {
-        "ticket": "gr00t/forge/profile/e2e",
-        "outcome": "measure",
-        "start": {"e2e_ms": 90.585},
-        "env": {"hardware": "thor"},
-    }
-    argv = propose_argv(result, author="agent:kal/test", evidence_text="只记账\n")
-    assert argv[:3] == ["propose", "--type", "lesson"]
-    assert "--map-node" in argv and argv[argv.index("--map-node") + 1] == "profile"
-    assert argv[argv.index("--map-module") + 1] == "e2e"
-    assert argv[argv.index("--map-outcome") + 1] == "measure"
-    claim = argv[argv.index("--claim") + 1]
-    assert "90.585" in claim
-    assert "accept" not in argv
+# 用例: kb return 从标准输入读结果，带 author、note，并要 JSON 回执
+# 参数: note 为空时不传 --note
+def test_return_argv_reads_stdin():
+    assert return_argv(author=AUTHOR, note="计时表") == [
+        "return", "--file", "-", "--author", AUTHOR, "--note", "计时表", "--json",
+    ]
+    assert "--note" not in return_argv(author=AUTHOR, note=None)
 
 
-# 用例: 草稿进 inbox，kb next 把这一格标成 pending，cards/ 里没有新卡
+# 用例: 草稿进 inbox，kb next 把这一格标成 pending，cards/ 里没有新卡；证据里有原始 JSON；同一 agent 的占位被释放
 # 参数: tmp_path 是临时知识库；kb_src 是 AiInfraKB 正本；monkeypatch 清掉 AIINFRAKB_ROOT
-def test_propose_cell_result_lands_in_inbox_and_blocks_next(tmp_path, kb_src, monkeypatch):
+def test_return_cell_result_lands_in_inbox_and_releases_lease(tmp_path, kb_src, monkeypatch):
     root = _mini_kb(tmp_path, kb_src)
+    lease = root / "leases" / "gr00t__forge__profile__e2e.yaml"
+    lease.parent.mkdir()
+    lease.write_text(f"holder: {AUTHOR}\nexpires: '2099-01-01T00:00:00+08:00'\n", encoding="utf-8")
     cmd = _kb_cmd(kb_src)
     result = _measure(monkeypatch)
-    rel = propose_cell_result(
-        result,
-        kb_root=root,
-        author="agent:kal/test",
-        evidence_text="只记账，没有改代码\n",
-        kb_cmd=cmd,
-    )
-    assert rel == "inbox/kb-0001.md"
-    assert (root / rel).is_file()
+    receipt = return_cell_result(result, kb_root=root, author=AUTHOR, note="只记账，没有改代码", kb_cmd=cmd)
+    assert receipt["path"] == "inbox/kb-0001.md"
+    assert receipt["lease"] == "released"
+    assert (root / receipt["path"]).is_file()
+    assert not lease.exists()
     assert not any((root / "cards").rglob("*.md"))
+    summary = (root / "evidence" / "kb-0001" / "summary.md").read_text(encoding="utf-8")
+    assert "只记账，没有改代码" in summary
+    assert json.loads(summary.split("```json\n", 1)[1].split("\n```", 1)[0]) == result
     proc = subprocess.run(
         [*cmd, "--root", str(root), "next", "--hardware", "thor", "--model", "gr00t", "--json"],
         check=True,
@@ -102,14 +99,8 @@ def test_propose_cell_result_lands_in_inbox_and_blocks_next(tmp_path, kb_src, mo
 
 # 用例: 对不上契约的结果在调用 kb 之前拒绝
 # 参数: outcome 非法；kb_src 是 AiInfraKB 正本；kb_cmd 指向不存在的程序，被调用就会失败
-def test_propose_cell_result_rejects_invalid_result_before_kb(tmp_path, kb_src):
+def test_return_cell_result_rejects_invalid_result_before_kb(tmp_path, kb_src):
     root = _mini_kb(tmp_path, kb_src)
     result = {"ticket": "gr00t/forge/profile/e2e", "outcome": "nope"}
     with pytest.raises(CellResultError, match="契约"):
-        propose_cell_result(
-            result,
-            kb_root=root,
-            author="agent:kal/test",
-            evidence_text="只记账\n",
-            kb_cmd=["/nonexistent/kb"],
-        )
+        return_cell_result(result, kb_root=root, author=AUTHOR, kb_cmd=["/nonexistent/kb"])

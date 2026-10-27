@@ -301,7 +301,7 @@ Feedback Builder 只给 Agent 少量高信号信息：排在前几位的症状�
 
 L2 条目沿用 `tirx-codegen-tuning` 的格式（一个条目一个文件，Symptoms 是唯一索引），另加一行 `**Backends:**`。SASS 层面的经验通常跨后端通用，标为 `any`。
 
-格子结果这一段已经接上，搜索循环还没有。`contracts/ticket.schema.json` 和 `contracts/cell-result.schema.json` 是 AiInfraKB `schema/` 的副本，正本在知识库。`check_contracts` 在设置了 `AIINFRAKB_ROOT` 时按字节比对。`induce_cell_result` 不读 sqlite、不跑评测：日志提供提交、父提交、手段、假设和判定，调用方另给 `AttemptNote`（`kind`、`expected_gain_ms`、`stage_reached`，以及可选的 `e2e_ms`）。四种结论对不上契约就拒绝输出。`propose_cell_result` 用 `kb propose --type lesson` 写入 `inbox/`，claim 带端到端毫秒，`map` 钉在工单的节点和模块上。草稿留在 inbox，不自动接受。
+格子结果这一段已经接上，搜索循环还没有。`contracts/ticket.schema.json` 和 `contracts/cell-result.schema.json` 是 AiInfraKB `schema/` 的副本，正本在知识库。`check_contracts` 在设置了 `AIINFRAKB_ROOT` 时按字节比对。`induce_cell_result` 不读 sqlite、不跑评测：日志提供提交、父提交、手段、假设和判定，调用方另给 `AttemptNote`（`kind`、`expected_gain_ms`、`stage_reached`，以及可选的 `e2e_ms`）。四种结论对不上契约就拒绝输出。`return_cell_result` 调用 `kb return --file - --json`，把结果从标准输入交给知识库：知识库按 schema 校验，写成钉在工单节点和模块上的草稿（claim 是起点 → 终点，证据含每次尝试和原始 JSON），并释放同一 agent 的占位，返回 `{id, path, lease}`。本仓不再拼 `kb propose` 参数。草稿留在 inbox，不自动接受。
 
 Planner 检索顺序：先查 L1 去重，再查 L2 找改法，最后查 L3 了解硬件特性。检索到的条目如果最终带来被接受的改动，就回写一次成功；没起作用也要回写，用来发现过期条目。
 
